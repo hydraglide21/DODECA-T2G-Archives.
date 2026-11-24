@@ -886,7 +886,7 @@ def main():
     st,coeffs,raison,det=parser_strict_fichier_T(None); test_negatif("Parser : fichier T absent -> NON_DET", "None", "parser_strict_fichier_T", NON_DET, st, raison, det, "parser absence", categorie=NON_DET)
     st_conv,det_conv=verifier_convention_historique(); ajouter("Convention historique SHA", st_conv, det_conv, obligatoire=True, raison=det_conv, detecteur="verifier_convention_historique", categorie=NON_DET)
     ajouter("authenticite_historique", NON_DET, "authenticite_historique = NON DETERMINE", obligatoire=True, raison="convention non demontree", detecteur="verifier_convention_historique", categorie=NON_DET)
-      ajouter("Exhaustivite des branches", NON_DET, "EXHAUSTIVITE = NON_DET : enumeration effective non demontree", obligatoire=True, raison="enumeration manquante", detecteur="verifier_branches_completes", categorie=NON_DET)
+    ajouter("Exhaustivite des branches", NON_DET, "EXHAUSTIVITE = NON_DET : enumeration effective non demontree", obligatoire=True, raison="enumeration manquante", detecteur="verifier_branches_completes", categorie=NON_DET)
     st_find,chemin_T,note_find=trouver_fichier_T(); ajouter("Fichier T trouve (si present)", st_find, str(chemin_T)+" "+note_find, obligatoire=False, raison=note_find, detecteur="trouver_fichier_T", categorie=NON_DET)
     fin=datetime.datetime.now()
     # --- 8+9. Rapport final + comptes ---
