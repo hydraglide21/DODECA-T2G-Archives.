@@ -1,0 +1,14 @@
+# JOURNAL_HNF_T2G_V2_8_B.txt
+# MISSION META - DODECA / T2g - V2.8-B
+# Version : V2.8-B, Python : 3.9.25
+# Phases : {"selftest": "PASS", "reconstruct": "PASS", "hnf": "PASS", "adj": "PASS", "hinv": "PASS", "dual": "PASS", "verify": "PASS"}
+# Timings (s) : {"selftest_s": 0.1, "reconstruct_total_s": 0.8, "newton_s": 0.1, "build_G_s": 0.0, "hnf_cumul_s": 73.8, "adj_cumul_s": 44.8, "hinv_cumul_s": 22.900000000000002, "dual_cumul_s": 91.5, "verify_s": 79.1}
+# Reconstruction : {"sha_v10": "9f0be9c7e0f1ab226efae0c98fdc64ab5dfa443cb57322d48b03f856ec4e70dc", "sha_disc": "a635503c3851911f44e58dbc12a40d7e67d4dd304961fb1da91b74a05150a57b", "sha_T_canon": "dcd2e52240144dfcbba15c0a31b81ced6738cd8b64e01b56c1a577e45f09644c", "lc_digits": 111, "c0_digits": 4331, "coeff_v3_match": true, "s76_digits": 8567, "G_max_digits": 8567, "D_digits": 164830}
+# HNF : {"swaps": 0, "negs": 0, "combines": 741, "detU_by_construction": 1, "detH_digits": 164830, "H_max_digits": 15209, "U_max_digits": 11000}
+# Dual : {"nondiv": 0, "Z_max_digits": 4284}
+# Verify : {"H_equals_U_times_G": true, "det_H_equals_disc": true, "det_G_equals_disc_via_HNF": true, "det_mod_primes": true, "mod_primes": [101, 1009, 10007, 99991, 1000003], "H_times_Adj_equals_det_I": true, "H_times_Adj_note": "Adj construit en resolvant H*Y=det*I ; re-verifie par sondage sur 5 entrees.", "H_times_Hinv_diag_I": true, "G_times_Hinv_equals_Z": true, "Z_times_U_equals_I": true, "U_times_Z_equals_I": true, "det_Z_equals_1_via_bilateral": true, "H_upper_triangular": true, "H_positive_diagonal": true, "H_reduced": true, "Hinv_rational_exact": true}
+# Selftest : {"reference_cases": 3, "random_matrices_verified": 700, "G_minus9": true, "det_negative_dim2": true, "singular_rejected": true, "corrupt_H_detected": true, "corrupt_U_detected": true, "hash_V10_ok": true, "hash_disc_ok": true, "newton_reference": true, "newton_reference2": true}
+# Rapport JSON : RAPPORT_HNF_T2G_V2_8_B.json
+# Note : les checkpoints V2_8_B_checkpoints/ permettent la reprise sure apres interruption.
+# Note : une premiere serie de calculs a ete perdue lors d'une reinitialisation de session (checkpoints _tmp effaces) ;
+# le calcul reel a ete refait integralement avec ce script V2.8-B et re-verifie.

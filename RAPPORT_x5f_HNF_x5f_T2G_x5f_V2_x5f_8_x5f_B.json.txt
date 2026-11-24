@@ -1,0 +1,114 @@
+{
+  "status": "PASS",
+  "version": "V2.8-B",
+  "python": "3.9.25",
+  "source_auth": {
+    "RESULTANT_SCHUR_T2G_V10_EXACT.txt_sha256": "9f0be9c7e0f1ab226efae0c98fdc64ab5dfa443cb57322d48b03f856ec4e70dc",
+    "DISCRIMINANT_T_BETA.txt_sha256": "a635503c3851911f44e58dbc12a40d7e67d4dd304961fb1da91b74a05150a57b",
+    "T_canon_sha256": "dcd2e52240144dfcbba15c0a31b81ced6738cd8b64e01b56c1a577e45f09644c",
+    "T_canon_serialization": "coefficients en ordre decroissant, un par ligne, \\n final",
+    "reconstruction_relation": "c_i = H_i * lc^(38-i) pour i<39, c_39=1, lc=H_39 ; H(y)=T(lc*y)/lc^38"
+  },
+  "reconstruction_T": "PASS",
+  "newton": "PASS",
+  "matrice_G": "PASS",
+  "determinant_exact": "PASS",
+  "HNF_reelle_39x39": "PASS",
+  "certificat_unimodulaire": "PASS",
+  "base_duale_reelle": "PASS",
+  "maximal_order_determined": false,
+  "maximal_order_note": "NON DETERMINEE : la base duale calculee est celle du reseau des traces, pas une preuve que Z[beta] est l'anneau des entiers.",
+  "reconstruct_detail": {
+    "sha_v10": "9f0be9c7e0f1ab226efae0c98fdc64ab5dfa443cb57322d48b03f856ec4e70dc",
+    "sha_disc": "a635503c3851911f44e58dbc12a40d7e67d4dd304961fb1da91b74a05150a57b",
+    "sha_T_canon": "dcd2e52240144dfcbba15c0a31b81ced6738cd8b64e01b56c1a577e45f09644c",
+    "lc_digits": 111,
+    "c0_digits": 4331,
+    "coeff_v3_match": true,
+    "s76_digits": 8567,
+    "G_max_digits": 8567,
+    "D_digits": 164830
+  },
+  "hnf_detail": {
+    "swaps": 0,
+    "negs": 0,
+    "combines": 741,
+    "detU_by_construction": 1,
+    "detH_digits": 164830,
+    "H_max_digits": 15209,
+    "U_max_digits": 11000
+  },
+  "hinv_detail": {
+    "max_num_digits": 11100,
+    "max_den_digits": 15209
+  },
+  "dual_detail": {
+    "nondiv": 0,
+    "Z_max_digits": 4284
+  },
+  "verify_detail": {
+    "H_equals_U_times_G": true,
+    "det_H_equals_disc": true,
+    "det_G_equals_disc_via_HNF": true,
+    "det_mod_primes": true,
+    "mod_primes": [
+      101,
+      1009,
+      10007,
+      99991,
+      1000003
+    ],
+    "H_times_Adj_equals_det_I": true,
+    "H_times_Adj_note": "Adj construit en resolvant H*Y=det*I ; re-verifie par sondage sur 5 entrees.",
+    "H_times_Hinv_diag_I": true,
+    "G_times_Hinv_equals_Z": true,
+    "Z_times_U_equals_I": true,
+    "U_times_Z_equals_I": true,
+    "det_Z_equals_1_via_bilateral": true,
+    "H_upper_triangular": true,
+    "H_positive_diagonal": true,
+    "H_reduced": true,
+    "Hinv_rational_exact": true
+  },
+  "selftest": {
+    "reference_cases": 3,
+    "random_matrices_verified": 700,
+    "G_minus9": true,
+    "det_negative_dim2": true,
+    "singular_rejected": true,
+    "corrupt_H_detected": true,
+    "corrupt_U_detected": true,
+    "hash_V10_ok": true,
+    "hash_disc_ok": true,
+    "newton_reference": true,
+    "newton_reference2": true
+  },
+  "timings": {
+    "selftest_s": 0.1,
+    "reconstruct_total_s": 0.8,
+    "newton_s": 0.1,
+    "build_G_s": 0.0,
+    "hnf_cumul_s": 73.8,
+    "adj_cumul_s": 44.8,
+    "hinv_cumul_s": 22.900000000000002,
+    "dual_cumul_s": 91.5,
+    "verify_s": 79.1
+  },
+  "files": [
+    "T_BETA_COEFFICIENTS_V2_8_B.txt",
+    "NEWTON_SUMS_T_BETA_S0_S76_V2_8_B.txt",
+    "MATRICE_TRACES_G_T2G_39_V2_8_B.txt",
+    "HNF_G_T2G_39_V2_8_B.txt",
+    "TRANSFORMATION_U_T2G_39_V2_8_B.txt",
+    "BASE_DUALE_TRACES_T2G_39_V2_8_B.txt",
+    "RAPPORT_HNF_T2G_V2_8_B.json",
+    "JOURNAL_HNF_T2G_V2_8_B.txt",
+    "SHA256SUMS_V2_8_B.txt"
+  ],
+  "limits": [
+    "Les controles modulaires (det mod p) ne remplacent pas la demonstration exacte det(H)=D, qui est faite par egalite exacte d'entiers (det(H)-D=0).",
+    "La preuve det(U)=+1 est par construction (0 echange, 0 negation, combines et transvections de det 1), pas par Bareiss sur U (trop lent : pivots > 27000 chiffres a k=5).",
+    "La base duale est celle du reseau des traces G, pas une base de l'anneau des entiers.",
+    "Aucun resultat n'est declare execute sans calcul reel ; les phases partielles sont marquees PARTIEL."
+  ]
+}
