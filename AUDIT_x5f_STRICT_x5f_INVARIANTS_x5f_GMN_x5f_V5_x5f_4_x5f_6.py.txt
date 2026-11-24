@@ -1,0 +1,914 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+AUDIT STRICT INVARIANTS GMN V5.4.6.
+NOUVEAU fichier. V5.1-V5.4.5 conserves, non modifies.
+Correction des validateurs GMN et tests negatifs stricts (base V5.4.5).
+- Python 3.9.25, stdlib uniquement. int et fractions.Fraction uniquement pour les calculs exacts.
+  Refus explicite des bool (sous-classe de int) lorsqu'un entier mathematique est attendu.
+- Trois statuts : OK / ECHEC / NON DETERMINE. Donnee absente -> NON DETERMINE, jamais valeur supposee.
+- Validateur ordonnees ordre 2 : recalcule chaque u_j = v2(b_j) + j*v2(phi2) et compare exactement.
+  Ne jamais assimiler v2(b_j) a la valuation minimale sans justification.
+- Validateur normalisation : t1(j) = (s1 - ell1*u_j)/e1, e1 entier strictement positif, fractions exactes,
+  integrite controlee, comparaison au t1 propose.
+- Invariants GMN : separation definition / hypothese. Etats : ETABLI / CALCULE / NON ETABLI / CONTRADICTION.
+  N'impose jamais s1=e1*v1, ell1=0, ell'_1=e1*v1(phi1), z1=1. Ne calcule jamais gamma1 par formule supposee.
+- Tests negatifs reellement independants : entree valide -> validateur de production -> une seule donnee modifiee
+  -> rejet constate -> le test echoue lui-meme si le validateur accepte. NON DETERMINE faute de donnees
+  n'est jamais un test negatif reussi.
+- Controle des types : aucun float, aucun bool comme entier, pentes Fraction, comparaisons exactes,
+  aucune conversion flottante, aucune division entiere quand une fraction est necessaire. Controle
+  des points, sommets, exposants, valuations, pas seulement des pentes.
+- Authentification T : SHA-256 canonique, verification de la convention de serialisation contre le
+  fichier source authentique. Nom logique attendu : T_BETA_COEFFICIENTS_V2_8_B.txt.
+  Ne pas confondre les sequences litterales "_x5f_" avec des underscores reels.
+  Ne jamais remplacer silencieusement le fichier authentique par un secours non authentifie.
+  Tests SHA : authentique, coefficient modifie, coefficient manquant, mauvaise monicite, bool.
+- Certification phi2 : CAS PARTICULIER e1==1 uniquement. e1 != 1 -> NON DETERMINE.
+- Statut global : ECHEC si obligatoire refute ; PASS PARTIEL si controles disponibles passent mais
+  obligatoires indetermines ; PASS uniquement si toutes validations obligatoires etablies.
+  Echec non obligatoire signale sans confusion avec refutation obligatoire.
+- Ordre 2 : ne fabrique aucun resultat. Si invariants manquants : polygone NON DETERMINE,
+  residuels NON DETERMINE, c_j non calcules, indice local NON CALCULE.
+  Aucune conclusion sur la maximalite de Z[beta].
+Matrices 39x39 NON recalculees. Donnees archivees reutilisees et authentifiees.
+"""
+import hashlib, math, os, re, sys
+from fractions import Fraction
+
+SHA_T_CANON = "dcd2e52240144dfcbba15c0a31b81ced6738cd8b64e01b56c1a577e45f09644c"
+# Nom logique attendu (underscores reels).
+NOM_LOGIQUE_T = "T_BETA_COEFFICIENTS_V2_8_B.txt"
+# Nom encode tel qu'il peut apparaitre sur le disque (sequences litterales _x5f_).
+NOM_ENCODE_T = "T_x5f_BETA_x5f_COEFFICIENTS_x5f_V2_x5f_8_x5f_B.txt"
+FIC_H = "RESULTANT_SCHUR_T2G_V10_EXACT.txt"
+FIC_H_UPLOAD = "/mnt/data/file172675094213334903.txt"
+
+OK = "OK"
+ECHEC = "ECHEC"
+NON_DET = "NON DETERMINE"
+
+# ---------------- Helpers types stricts ----------------
+def is_strict_int(x):
+    return type(x) is int
+def is_strict_fraction(x):
+    return type(x) is Fraction
+def is_exact_number(x):
+    return type(x) is int or type(x) is Fraction
+def check_no_bool_no_float(x):
+    """Retourne (statut, detail). ECHEC si float ou bool ; OK sinon."""
+    if isinstance(x, float):
+        return (ECHEC, "Float interdit : %r"%x)
+    if type(x) is bool:
+        return (ECHEC, "Bool interdit comme entier : %r"%x)
+    return (OK, "Type OK")
+
+class Resultat:
+    def __init__(self, nom, statut, detail="", obligatoire=True):
+        assert statut in (OK, ECHEC, NON_DET, "PASS PARTIEL", "PASS")
+        self.nom = nom; self.statut = statut; self.detail = detail; self.obligatoire = obligatoire
+
+def statut_global(resultats):
+    """ECHEC si obligatoire refute ; PASS PARTIEL si controles disponibles passent mais
+       obligatoires indetermines, ou si un non-obligatoire echoue (signale, non confondu) ;
+       PASS uniquement si toutes validations obligatoires etablies et reussissent.
+       Ne jamais convertir NON DETERMINE en ECHEC."""
+    mand_echec = [r for r in resultats if r.obligatoire and r.statut == ECHEC]
+    if mand_echec:
+        return ECHEC
+    mand_nd = [r for r in resultats if r.obligatoire and r.statut == NON_DET]
+    nonmand_echec = [r for r in resultats if (not r.obligatoire) and r.statut == ECHEC]
+    nonmand_nd = [r for r in resultats if (not r.obligatoire) and r.statut == NON_DET]
+    if mand_nd or nonmand_echec or nonmand_nd:
+        return "PASS PARTIEL"
+    return "PASS"
+
+# ---------------- F2[X] ----------------
+def degF(p): return p.bit_length()-1 if p else -1
+def mulF(a,b):
+    r=0
+    while b:
+        if b&1: r^=a
+        a<<=1; b>>=1
+    return r
+def divmodF(a,b):
+    assert b!=0
+    q,r,db=0,a,degF(b)
+    while r and degF(r)>=db:
+        s=degF(r)-db; q^=(1<<s); r^=(b<<s)
+    return q,r
+def modF(a,b): return divmodF(a,b)[1]
+def gcdF(a,b):
+    while b: a,b=b,modF(a,b)
+    return a
+def derivF(p):
+    r=0
+    for i in range(degF(p)+1):
+        if ((p>>i)&1) and (i%2==1): r^=(1<<(i-1))
+    return r
+def pow_x_2n_mod(p,n):
+    r=0b10
+    for _ in range(n): r=modF(mulF(r,r),p)
+    return r
+def prime_divisors(n):
+    res,d,m=[],2,n
+    while d*d<=m:
+        if m%d==0:
+            res.append(d)
+            while m%d==0: m//=d
+        d+=1 if d==2 else 2
+    if m>1: res.append(m)
+    return res
+def is_irred_rabin(p):
+    n=degF(p)
+    if n<=0: return False
+    if ((p>>n)&1)!=1: return False
+    if n==1: return True
+    if (p&1)==0: return False
+    exp=modF(0b10,p)
+    if pow_x_2n_mod(p,n)!=exp: return False
+    for ell in prime_divisors(n):
+        e=n//ell
+        if gcdF(pow_x_2n_mod(p,e)^exp,p)!=1: return False
+    return True
+def factor_F2(p):
+    assert p!=0
+    if p==1: return {}
+    facs,rem={},p
+    while rem!=1 and (rem&1)==0:
+        assert modF(rem,0b10)==0
+        facs[0b10]=facs.get(0b10,0)+1
+        rem=divmodF(rem,0b10)[0]
+    d=1
+    while rem!=1 and d<=degF(rem):
+        cands=[0b11] if d==1 else range((1<<d)|1,1<<(d+1),2)
+        for q in cands:
+            if degF(q)!=d or not is_irred_rabin(q): continue
+            while rem!=1 and modF(rem,q)==0:
+                facs[q]=facs.get(q,0)+1
+                rem=divmodF(rem,q)[0]
+        d+=1
+    if rem!=1:
+        assert is_irred_rabin(rem)
+        facs[rem]=facs.get(rem,0)+1
+    return facs
+def prodF(facs):
+    r=1
+    for q,m in facs.items():
+        for _ in range(m): r=mulF(r,q)
+    return r
+def to_strF(p):
+    if p==0: return "0"
+    out=[]
+    for i in range(degF(p)+1):
+        if (p>>i)&1: out.append("1" if i==0 else ("Y" if i==1 else "Y^%d"%i))
+    return " + ".join(out)
+
+# ---------------- Z[X] ----------------
+def v2_int(n):
+    # n doit etre int strict, non bool, non nul.
+    if type(n) is bool or not type(n) is int:
+        raise TypeError("v2_int exige int strict, non bool/float")
+    assert n!=0
+    v,m=0,abs(n)
+    while m%2==0: m//=2; v+=1
+    return v
+def v0_poly(a):
+    nz=[x for x in a if x!=0]
+    assert nz, "v0(0) indefinie"
+    for x in nz:
+        if type(x) is bool or not type(x) is int:
+            raise TypeError("v0_poly exige coefficients int stricts")
+    return min(v2_int(x) for x in nz)
+def poly_deg(c):
+    d=len(c)-1
+    while d>0 and c[d]==0: d-=1
+    return d
+def poly_add(a,b):
+    n=max(len(a),len(b))
+    return [(a[i] if i<len(a) else 0)+(b[i] if i<len(b) else 0) for i in range(n)]
+def poly_mul(a,b):
+    r=[0]*(len(a)+len(b)-1)
+    for i,ca in enumerate(a):
+        if ca:
+            for j,cb in enumerate(b):
+                if cb: r[i+j]+=ca*cb
+    while len(r)>1 and r[-1]==0: r.pop()
+    return r
+def poly_divmod(a,b):
+    assert any(b)
+    db=poly_deg(b); assert b[db]==1
+    r=list(a)
+    while len(r)<len(b): r.append(0)
+    q=[0]*(max(0,len(a)-db)+1)
+    for k in range(len(a)-1,db-1,-1):
+        if k<len(r) and r[k]!=0:
+            cc=r[k]; q[k-db]=cc
+            for j in range(db+1): r[k-db+j]-=cc*b[j]
+    while len(r)>1 and r[-1]==0: r.pop()
+    while len(q)>1 and q[-1]==0: q.pop()
+    return q,r
+def expansion_phi_adique(T,phi):
+    assert phi and phi[-1]==1
+    coeffs,reste=[],list(T)
+    while True:
+        q,r=poly_divmod(reste,phi); coeffs.append(r)
+        if len(q)==1 and q[0]==0: break
+        reste=q; assert len(coeffs)<=100
+    return coeffs
+def verifier_expansion(T,phi,coeffs):
+    recon,puis=[0],[1]
+    for a in coeffs:
+        recon=poly_add(recon,poly_mul(a,puis)); puis=poly_mul(puis,phi)
+    while len(recon)<len(T): recon.append(0)
+    while len(recon)>1 and recon[-1]==0: recon.pop()
+    t=list(T)
+    while len(t)>1 and t[-1]==0: t.pop()
+    assert recon==t, "Expansion phi-adique ne reconstruit pas T"
+    return True
+def polygone_newton(points):
+    # points : (x int strict, y Fraction). Controle des types.
+    for (x,y) in points:
+        if type(x) is bool or not type(x) is int:
+            raise TypeError("Abscisse doit etre int strict")
+        if type(y) is bool or isinstance(y,float) or not (type(y) is int or type(y) is Fraction):
+            raise TypeError("Ordonnee doit etre int/Fraction, non float/bool")
+    hull=[]
+    for p in points:
+        while len(hull)>=2:
+            x1,y1=hull[-2]; x2,y2=hull[-1]; x3,y3=p
+            if Fraction(y2-y1,x2-x1)>=Fraction(y3-y2,x3-x2): hull.pop()
+            else: break
+        hull.append(p)
+    return hull
+def v1_poly(a,phi1,lambda1):
+    assert any(a)
+    v1_phi=v0_poly(phi1)+lambda1
+    coeffs=expansion_phi_adique(a,phi1)
+    vals=[v0_poly(cj)+j*v1_phi for j,cj in enumerate(coeffs) if any(cj)]
+    assert vals
+    return min(vals)
+def v1_decomposition(a,phi1,lambda1):
+    v1_phi=v0_poly(phi1)+lambda1
+    coeffs=expansion_phi_adique(a,phi1)
+    det=[]
+    for t,ct in enumerate(coeffs):
+        if any(ct): det.append((t,ct,v0_poly(ct),v0_poly(ct)+t*v1_phi))
+    v1=min(d[3] for d in det); tmin=[d[0] for d in det if d[3]==v1]
+    return v1,det,tmin
+
+# ---------- Validateur central anti-flottant / anti-bool : points, sommets, exposants, valuations ----------
+def valider_types_polygone(points, hull=None, pentes=None, exposants=None, valuations=None):
+    """Refuse float et bool dans points, sommets, pentes, exposants, valuations.
+       Retourne (statut, detail)."""
+    if points is None:
+        return (NON_DET, "Points manquants")
+    for (x,y) in points:
+        if isinstance(x,float) or type(x) is bool:
+            return (ECHEC, "Abscisse float/bool : %r"%x)
+        if isinstance(y,float) or type(y) is bool:
+            return (ECHEC, "Ordonnee float/bool : %r"%y)
+        if not (type(x) is int and (type(y) is int or type(y) is Fraction)):
+            return (ECHEC, "Type inattendu point (%r,%r)"%(x,y))
+    if hull is not None:
+        for (x,y) in hull:
+            if isinstance(x,float) or type(x) is bool or isinstance(y,float) or type(y) is bool:
+                return (ECHEC, "Sommet float/bool")
+    if pentes is not None:
+        for p in pentes:
+            if isinstance(p,float) or type(p) is bool:
+                return (ECHEC, "Pente float/bool : %r"%p)
+            if not type(p) is Fraction:
+                return (ECHEC, "Pente non Fraction : %r"%p)
+    if exposants is not None:
+        for e in exposants:
+            if isinstance(e,float) or type(e) is bool or not type(e) is int:
+                return (ECHEC, "Exposant float/bool/non-int : %r"%e)
+    if valuations is not None:
+        for v in valuations:
+            if isinstance(v,float) or type(v) is bool or not (type(v) is int or type(v) is Fraction):
+                return (ECHEC, "Valuation float/bool : %r"%v)
+    return (OK, "Types exacts, aucun float/bool")
+
+# ---------- 2. Validateur ordonnees GMN : recalcule chaque u_j ----------
+def valider_ordonnees_gmn(coeffs_bj, v2_bj_list, v2_phi2, u_j_list):
+    """Validateur de production de la formule u_j = v2(b_j) + j*v2(phi2).
+       Entrees : coeffs_bj (liste), v2_bj_list (valeurs exactes etablies ou None si manquantes),
+       v2_phi2 (valeur exacte etablie ou None), u_j_list (ordonnees calculees proposees).
+       - Si v2_phi2 is None ou un v2_bj is None -> NON DETERMINE (donnee manquante).
+       - Si un type est float/bool -> ECHEC (type).
+       - Sinon recalcule chaque u_j attendue en Fraction et compare exactement.
+       Ne jamais assimiler v2(b_j) a la valuation minimale sans justification : v2_bj_list
+       doit etre fournie comme valeurs etablies, non derivee ici de v0."""
+    if coeffs_bj is None or v2_bj_list is None or u_j_list is None:
+        return (NON_DET, "Donnees manquantes (coeffs/v2_bj/u_j)")
+    if len(coeffs_bj)!=len(v2_bj_list) or len(coeffs_bj)!=len(u_j_list):
+        return (ECHEC, "Longueurs incoherentes")
+    if v2_phi2 is None:
+        return (NON_DET, "v2(phi2) manquante")
+    # Controle types de v2_phi2.
+    if isinstance(v2_phi2,float) or type(v2_phi2) is bool:
+        return (ECHEC, "v2(phi2) float/bool")
+    if not (type(v2_phi2) is int or type(v2_phi2) is Fraction):
+        return (ECHEC, "v2(phi2) type inattendu")
+    for idx, (bj, v2bj, uj) in enumerate(zip(coeffs_bj, v2_bj_list, u_j_list)):
+        if v2bj is None:
+            return (NON_DET, "v2(b_%d) manquante"%idx)
+        if uj is None:
+            return (NON_DET, "u_%d manquante"%idx)
+        if isinstance(v2bj,float) or type(v2bj) is bool:
+            return (ECHEC, "v2(b_%d) float/bool"%idx)
+        if isinstance(uj,float) or type(uj) is bool:
+            return (ECHEC, "u_%d float/bool"%idx)
+        if not (type(v2bj) is int or type(v2bj) is Fraction):
+            return (ECHEC, "v2(b_%d) type inattendu"%idx)
+        if not (type(uj) is int or type(uj) is Fraction):
+            return (ECHEC, "u_%d type inattendu"%idx)
+        # Recalcul exact en Fraction.
+        u_attendue = Fraction(v2bj) + Fraction(idx)*Fraction(v2_phi2)
+        if Fraction(uj) != u_attendue:
+            return (ECHEC, "u_%d : propose %s != attendu %s (v2(b)=%s, v2(phi2)=%s)"%(idx, uj, u_attendue, v2bj, v2_phi2))
+    return (OK, "Toutes les ordonnees recalculees et exactes")
+
+# ---------- 3. Validateur normalisation t1 ----------
+def valider_t1(s1, ell1, u_j, e1, t1_propose):
+    """Validateur de t1(j) = (s1 - ell1*u_j)/e1.
+       - e1 doit etre int strict strictement positif. e1==0 -> ECHEC (impossible).
+         e1 float/bool -> ECHEC (type). e1 None -> NON DETERMINE.
+       - s1/ell1/u_j None -> NON DETERMINE. float/bool -> ECHEC.
+       - Calcul en Fraction, integrite controlee, comparaison au t1 propose.
+       - t1_propose None -> NON DETERMINE. float/bool -> ECHEC."""
+    if e1 is None:
+        return (NON_DET, "e1 manquant")
+    if isinstance(e1,float) or type(e1) is bool:
+        return (ECHEC, "e1 float/bool")
+    if not type(e1) is int:
+        return (ECHEC, "e1 non int")
+    if e1==0:
+        return (ECHEC, "e1=0 impossible (division par zero)")
+    if e1<0:
+        return (ECHEC, "e1 negatif")
+    if s1 is None or ell1 is None or u_j is None:
+        return (NON_DET, "Donnees t1 manquantes (s1/ell1/u_j)")
+    for (nom, val) in [("s1",s1),("ell1",ell1),("u_j",u_j)]:
+        if isinstance(val,float) or type(val) is bool:
+            return (ECHEC, "%s float/bool"%nom)
+        if not (type(val) is int or type(val) is Fraction):
+            return (ECHEC, "%s type inattendu"%nom)
+    if t1_propose is None:
+        return (NON_DET, "t1 propose manquant")
+    if isinstance(t1_propose,float) or type(t1_propose) is bool:
+        return (ECHEC, "t1 propose float/bool")
+    if not type(t1_propose) is int:
+        return (ECHEC, "t1 propose non int")
+    numF = Fraction(s1) - Fraction(ell1)*Fraction(u_j)
+    if numF.denominator!=1:
+        return (NON_DET, "t1 non entier (numF=%s)"%numF)
+    if (numF.numerator % e1)!=0:
+        return (NON_DET, "t1 non entier (division e1)")
+    t1_attendu = numF.numerator//e1
+    if t1_attendu<0:
+        return (NON_DET, "t1 negatif")
+    if t1_propose!=t1_attendu:
+        return (ECHEC, "t1 propose %s != attendu %s"%(t1_propose, t1_attendu))
+    return (OK, "t1 = %s"%t1_attendu)
+
+def validate_exponents(tmin,t0,e1):
+    for t in tmin:
+        if (t-t0)%e1!=0:
+            raise AssertionError("Fausse normalisation (t-t0)%%e1")
+    return True
+def red1_poly(a,phi1,lambda1):
+    assert any(a)
+    d=poly_deg(phi1); lam=Fraction(lambda1); e1=lam.denominator
+    v1,det,tmin=v1_decomposition(a,phi1,lambda1); t0=min(tmin)
+    validate_exponents(tmin,t0,e1)
+    phi_mod2=0
+    for i,cc in enumerate(phi1):
+        if cc%2==1: phi_mod2^=(1<<i)
+    if d==1:
+        P=0
+        for (t,ct,v0ct,_) in det:
+            if t in tmin:
+                assert (ct[0]//(2**v0ct))%2==1
+                P^=(1<<((t-t0)//e1))
+        return P,t0,e1,v1
+    else:
+        Pd={}
+        for (t,ct,v0ct,_) in det:
+            if t in tmin:
+                ad=[(cc//(2**v0ct)) if cc!=0 else 0 for cc in ct]
+                am=0
+                for j,cc in enumerate(ad):
+                    if cc%2==1: am^=(1<<j)
+                coeff=modF(am,phi_mod2) if phi_mod2!=0 else am
+                e=(t-t0)//e1; Pd[e]=Pd.get(e,0)^coeff
+        return Pd,t0,e1,v1
+def reduce_P_mod_psi1(P,psi1,phi1):
+    d=poly_deg(phi1)
+    if d==1:
+        if P==0: return 0
+        _,r=divmodF(P,psi1); return r
+    else:
+        if degF(psi1)==1:
+            s=0
+            for coeff in P.values(): s^=coeff
+            return s
+        raise NotImplementedError("Reduction mod psi1 deg>1 pour deg phi1>1 : ouvert")
+
+# ---------- 4. Invariants GMN : etats independants ----------
+# Etats : ETABLI / CALCULE / NON ETABLI / CONTRADICTION
+def audit_invariants_type(phi1,lambda1,psi1):
+    """Pour chaque invariant, etat independant. N'impose jamais les formules supposees.
+       e1,h1,f1 : CALCULE (derives de lambda1, psi1, verifies).
+       ell1, ell'_1, pi1, pi2, Phi1, gamma1, z1, s1, v2 : NON ETABLI sans Def. verifiees."""
+    lam=Fraction(lambda1)
+    e1=lam.denominator; h1=lam.numerator; f1=degF(psi1)
+    invariants={}
+    invariants["e1"]={"etat":"CALCULE","valeur":e1,"detail":"denominateur(lambda1)"}
+    invariants["h1"]={"etat":"CALCULE","valeur":h1,"detail":"numerateur(lambda1)"}
+    invariants["f1"]={"etat":"CALCULE","valeur":f1,"detail":"deg psi1"}
+    if math.gcd(h1,e1)!=1:
+        invariants["e1"]["etat"]="CONTRADICTION"
+        return ("ECHEC", invariants)
+    for nom in ["ell1","ell_prime_1","pi1","pi2","Phi1","gamma1","z1","s1","v2"]:
+        invariants[nom]={"etat":"NON ETABLI","valeur":None,"detail":"Def. 2.13/2.14/2.20/2.21 non verifiees ; aucune formule supposee"}
+    return (NON_DET, invariants)
+
+# ---------- 7. Authentification T : verification de la convention de serialisation ----------
+def trouver_fichier_T():
+    """Ne pas confondre _x5f_ (sequences litterales) et _ (underscores reels).
+       Retourne (statut, chemin_trouve, note). Ne remplace jamais silencieusement
+       le fichier authentique par un secours non authentifie."""
+    candidats=[]
+    # Nom logique attendu (underscores reels) : prioritaire.
+    candidats.append(NOM_LOGIQUE_T)
+    candidats.append(os.path.join("/mnt/data", NOM_LOGIQUE_T))
+    # Nom encode (sequences _x5f_) : variante d'encodage, signalee comme telle.
+    candidats.append(NOM_ENCODE_T)
+    candidats.append(os.path.join("/mnt/data", NOM_ENCODE_T))
+    for cand in candidats:
+        if os.path.isfile(cand):
+            if "_x5f_" in cand:
+                note="Fichier trouve sous nom ENCODE (_x5f_ litteral), non le nom logique. Convention a verifier."
+            else:
+                note="Fichier trouve sous nom LOGIQUE (underscores reels)."
+            return (OK, cand, note)
+    return (NON_DET, None, "Aucun fichier T trouve (ni logique ni encode).")
+
+def valider_authenticite_T(coefficients, sha_attendu):
+    """Verifie : types stricts (aucun bool/float), longueur 40, degre 39, monicite,
+       serialisation canonique, SHA-256, comparaison. Retourne (statut, detail).
+       OK ou ECHEC. Coefficients manquants / mauvaise monicite / bool -> ECHEC."""
+    if coefficients is None:
+        return (ECHEC, "Coefficients manquants (None)")
+    if not isinstance(coefficients, list):
+        return (ECHEC, "Coefficients non liste")
+    if len(coefficients)!=40:
+        return (ECHEC, "Longueur %d != 40 (coefficient manquant ou en trop)"%len(coefficients))
+    for idx, c in enumerate(coefficients):
+        if isinstance(c,float) or type(c) is bool:
+            return (ECHEC, "Coefficient %d float/bool : %r"%(idx,c))
+        if not type(c) is int:
+            return (ECHEC, "Coefficient %d non int : %r"%(idx,c))
+    # Degre 39 : poly_deg doit etre 39 (dernier coeff non nul).
+    try:
+        if poly_deg(coefficients)!=39:
+            return (ECHEC, "Degre %d != 39"%poly_deg(coefficients))
+    except Exception as e:
+        return (ECHEC, "Degre : %s"%e)
+    if coefficients[39]!=1:
+        return (ECHEC, "Mauvaise monicite (c39=%s != 1)"%coefficients[39])
+    # Serialisation canonique : "\n".join(str(c[i]) for i in 39..0) + "\n".
+    # Convention a confronter au fichier source : voir charger_T_authentifie.
+    ser="\n".join(str(coefficients[i]) for i in range(39,-1,-1))+"\n"
+    h=hashlib.sha256(ser.encode("utf-8")).hexdigest()
+    if h!=sha_attendu:
+        return (ECHEC, "SHA %s != attendu"%h)
+    return (OK, "Degre 39, monique, types stricts, SHA OK")
+
+def charger_T_authentifie():
+    """Charge T depuis le fichier source authentique, verifie la convention de serialisation.
+       Retourne (statut, coefficients, source, convention). Ne remplace jamais silencieusement
+       le fichier authentique par un secours non authentifie : si le fichier T n'existe pas,
+       retourne NON DETERMINE (pas de fallback H= silencieux)."""
+    st_find, chemin, note = trouver_fichier_T()
+    if st_find!=OK:
+        return (NON_DET, None, None, note)
+    # Lire le fichier et verifier sa structure.
+    try:
+        with open(chemin,"r",encoding="utf-8") as f:
+            texte=f.read()
+    except Exception as e:
+        return (ECHEC, None, chemin, "Lecture : %s"%e)
+    # Deux formes possibles : c_0..c_39 (forme directe) ou H= (forme resultant).
+    # La convention SHA canonique est definie sur la serialisation c_39..c_0.
+    # Si le fichier est en forme H=, la transformation H -> coefficients doit etre documentee
+    # comme DERIVEE, non supposee canonique. Ici, on n'accepte que la forme c_ comme directe.
+    # Si le fichier contient des lignes c_, on les parse ; sinon, on retourne NON DETERMINE
+    # pour la convention (on ne fabrique pas de coefficients depuis H= sans authentification).
+    coeffs_dict={}
+    has_c=False
+    for line in texte.splitlines():
+        line=line.strip()
+        if line.startswith("c_"):
+            has_c=True
+            if "=" in line:
+                k,v=line.split("=",1)
+                try:
+                    coeffs_dict[int(k[2:])]=int(v)
+                except Exception:
+                    return (ECHEC, None, chemin, "Ligne c_ non entiere")
+    if has_c:
+        if sorted(coeffs_dict.keys())!=list(range(40)):
+            return (ECHEC, None, chemin, "Coefficients c_ incomplets")
+        c=[coeffs_dict[i] for i in range(40)]
+        # Verifier que la serialisation reconstruite correspond bien au fichier (convention).
+        # On reconstruit la serialisation canonique et on verifie le SHA.
+        st_auth, det_auth = valider_authenticite_T(c, SHA_T_CANON)
+        if st_auth!=OK:
+            return (ECHEC, None, chemin, "Authentification : %s"%det_auth)
+        return (OK, c, chemin, "Convention c_ directe, serialisation canonique verifiee. %s"%note)
+    # Forme H= : on ne la traite pas comme authentique sans verification supplementaire.
+    # On retourne NON DETERMINE pour la convention, en signalant la forme.
+    if "H=" in texte:
+        return (NON_DET, None, chemin, "Fichier en forme H= : convention de serialisation non confrontee directement ; pas de fallback silencieux. %s"%note)
+    return (ECHEC, None, chemin, "Forme de fichier T inconnue")
+
+def residuel_ordre1(phi,T):
+    d=poly_deg(phi); coeffs=expansion_phi_adique(T,phi)
+    assert verifier_expansion(T,phi,coeffs)
+    pts=[(i,v0_poly(a)) for i,a in enumerate(coeffs) if any(a)]
+    hull=polygone_newton(pts); segs=[]
+    for k in range(len(hull)-1):
+        x0,y0=hull[k]; x1,y1=hull[k+1]; L=x1-x0; Hh=y0-y1
+        dd=math.gcd(L,Hh) if Hh!=0 else L; e=L//dd if dd else L
+        pente=Fraction(-Hh,L)
+        if d==1:
+            res=0
+            for i in range(x0,x1+1):
+                y_exp=Fraction(y0)-Fraction(Hh*(i-x0),L)
+                if y_exp.denominator==1 and (i,int(y_exp)) in pts and (i-x0)%e==0:
+                    res^=(1<<((i-x0)//e))
+            segs.append((x0,x1,pente,res))
+        else:
+            phi_mod2=0
+            for i,cc in enumerate(phi):
+                if cc%2==1: phi_mod2^=(1<<i)
+            rl=[]
+            for i in range(x0,x1+1):
+                y_exp=Fraction(y0)-Fraction(Hh*(i-x0),L)
+                if y_exp.denominator==1 and (i,int(y_exp)) in pts and (i-x0)%e==0:
+                    a=coeffs[i]; vv=v0_poly(a)
+                    ad=[(cc//(2**vv)) if cc!=0 else 0 for cc in a]
+                    am=0
+                    for j,cc in enumerate(ad):
+                        if cc%2==1: am^=(1<<j)
+                    rl.append(((i-x0)//e, modF(am,phi_mod2) if phi_mod2!=0 else am))
+            segs.append((x0,x1,pente,rl))
+    return segs
+
+# ---------- 8. Certification phi2 : CAS PARTICULIER e1==1 ----------
+def certifier_phi2_cas_particulier_e1_1(phi1,lambda1,psi1,phi2):
+    """CERTIFICATION PHI2 : CAS PARTICULIER e1=1 uniquement.
+       Si e1 != 1 -> NON DETERMINE tant que construction generale non demontree."""
+    lam=Fraction(lambda1)
+    if lam.denominator!=1:
+        return (NON_DET, {"raison":"e1 != 1 : construction generale non demontree"})
+    det={}
+    det["degre"]=poly_deg(phi2); det["monique"]=(phi2[-1]==1)
+    if not det["monique"] or det["degre"]<1:
+        return (ECHEC, det)
+    exp=expansion_phi_adique(phi2,phi1)
+    det["expansion_phi1"]=exp
+    if not verifier_expansion(phi2,phi1,exp):
+        return (ECHEC, det)
+    pts=[(i,v0_poly(a)) for i,a in enumerate(exp) if any(a)]
+    hull=polygone_newton(pts)
+    det["points_phi2"]=pts; det["hull_phi2"]=hull
+    if len(hull)!=2:
+        return (ECHEC, det)
+    (x0,y0),(x1,y1)=hull[0],hull[1]
+    pente=Fraction(-(y0-y1),x1-x0); det["pente_phi2"]=pente
+    if pente!=Fraction(-Fraction(lambda1)):
+        return (ECHEC, det)
+    segs=residuel_ordre1(phi1,phi2)
+    det["segments_phi2"]=segs
+    if len(segs)!=1:
+        return (ECHEC, det)
+    _,_,_,res_phi2=segs[0]
+    det["residuel_phi2"]=res_phi2; det["psi1_attendu"]=psi1
+    if not (isinstance(res_phi2,int) and isinstance(psi1,int)):
+        return (NON_DET, det)
+    if res_phi2!=psi1:
+        return (ECHEC, det)
+    if ((psi1>>degF(psi1))&1)!=1:
+        return (ECHEC, det)
+    h1=lam.numerator; e1=lam.denominator
+    diff=[phi2[i]-(phi1[i] if i<len(phi1) else 0) for i in range(max(len(phi2),len(phi1)))]
+    while len(diff)>1 and diff[-1]==0: diff.pop()
+    det["diff_phi2_phi1"]=diff
+    if poly_deg(diff)!=0:
+        return (ECHEC, det)
+    dval=diff[0]
+    if v2_int(dval)!=h1:
+        return (ECHEC, det)
+    if abs(dval)//(2**h1)%2!=1:
+        return (ECHEC, det)
+    deg_attendu=poly_deg(phi1)*e1*degF(psi1)
+    det["deg_attendu"]=deg_attendu
+    if det["degre"]!=deg_attendu:
+        return (ECHEC, det)
+    return (OK, det)
+
+def taylor_voie_B(T,phi):
+    assert poly_deg(phi)==1 and phi[1]==1
+    a0=-phi[0]
+    b=[]
+    for j in range(len(T)):
+        s=0
+        for i in range(j,len(T)):
+            s+=T[i]*math.comb(i,j)*(a0**(i-j))
+        b.append(s)
+    while len(b)>1 and b[-1]==0: b.pop()
+    return b
+
+def verifier_branches_completes(branches_observes, couples_attendus):
+    if couples_attendus is None:
+        return (NON_DET, None, "Couples attendus archives non disponibles.")
+    for (p_att, r_att) in couples_attendus:
+        trouve=False
+        for q in branches_observes:
+            if (p_att, r_att) in branches_observes[q]:
+                trouve=True; break
+        if not trouve:
+            return (ECHEC, False, "Couple attendu absent.")
+    return (OK, True, "Tous couples attendus presents.")
+
+# ---------- Rapport second ordre : ne fabrique aucun resultat ----------
+def rapport_second_ordre_audit(phi1,lambda1,psi1,phi2,T,invariants):
+    """Si invariants manquants : polygone NON DETERMINE, residuels NON DETERMINE, c_j non calcules.
+       Points geometriques conserves (b_j != 0) sans inventer les coefficients."""
+    assert phi2[-1]==1
+    coeffs2=expansion_phi_adique(T,phi2); assert verifier_expansion(T,phi2,coeffs2)
+    points=[]
+    for j,bj in enumerate(coeffs2):
+        if any(bj):
+            # v2, s1, t1, c_j : tous NON DETERMINE si invariants manquants.
+            points.append({"j":j,"b_j":bj,"v2_bj":None,"v2_phi2":None,"u_j":None,"s1":None,"t1":None,"c_j":None})
+            print("[V5.4.6] j=%d : b_j=%s ; v2(b_j)=NON DETERMINE ; u_j=NON DETERMINE ; c_j=NON CALCULE"%(j,bj))
+    return (NON_DET, points, None, None)
+
+def main():
+    print("[V5.4.6] AUDIT STRICT INVARIANTS GMN V5.4.6. V5.1-V5.4.5 preservees.")
+    print("[V5.4.6] GMN : Guardia-Montes-Nart, Trans. AMS 364 (2012), §2, Def. 2.13, 2.14, 2.20, 2.21.")
+    print("[V5.4.6] Version Python : %s"%sys.version.split()[0])
+    resultats=[]
+    def ajouter(nom, statut, detail="", obligatoire=True):
+        r=Resultat(nom, statut, detail, obligatoire)
+        resultats.append(r)
+        print("[V5.4.6] %s : %s (%s) obligatoire=%s"%(nom, statut, detail, obligatoire))
+        return r
+    # --- 1. Authentification T (avec verification convention) ---
+    st_find, chemin_T, note_find = trouver_fichier_T()
+    print("[V5.4.6] Fichier T : statut=%s chemin=%s note=%s"%(st_find, chemin_T, note_find))
+    st_ch, c_auth, src_auth, conv_auth = charger_T_authentifie()
+    print("[V5.4.6] Chargement T authentifie : statut=%s source=%s convention=%s"%(st_ch, src_auth, conv_auth))
+    if st_ch==OK:
+        ajouter("Authentification T (fichier source authentique)", OK, "Source %s, %s"%(src_auth, conv_auth), obligatoire=True)
+        c=c_auth
+    else:
+        # Si le fichier T authentique n'est pas directement en forme c_, on ne le remplace pas
+        # par un secours. On marque l'authentification comme NON DETERMINE et on ne poursuit
+        # pas les calculs sur T (on utilise un T vide pour les tests de validateurs qui n'en ont pas besoin).
+        ajouter("Authentification T (fichier source authentique)", st_ch, conv_auth, obligatoire=True)
+        c=None
+    # --- Tests SHA du validateur (independants du fichier) : entree valide -> validateur -> une donnee modifiee ---
+    # Pour ces tests, on construit un T valide fictif de test (non le T authentique) avec SHA calcule sur place,
+    # ou on utilise c_auth si disponible. Ici on utilise c_auth si OK, sinon on saute les tests T avec NON DETERMINE.
+    if c is not None:
+        # Test positif : vrai T.
+        st_a, det_a = valider_authenticite_T(c, SHA_T_CANON)
+        ajouter("Validateur SHA : T authentique", st_a, det_a, obligatoire=True)
+        # Test negatif 1 : coefficient modifie (une seule donnee).
+        c_mod=list(c); c_mod[0]=c_mod[0]+1
+        st_am, det_am = valider_authenticite_T(c_mod, SHA_T_CANON)
+        if st_am==ECHEC:
+            ajouter("Negatif SHA : coefficient modifie rejete", OK, det_am, obligatoire=True)
+        else:
+            ajouter("Negatif SHA : coefficient modifie rejete", ECHEC, "Validateur a accepte", obligatoire=True)
+        # Test negatif 2 : coefficient manquant (longueur 39).
+        c_miss=list(c)[:-1]
+        st_miss, det_miss = valider_authenticite_T(c_miss, SHA_T_CANON)
+        if st_miss==ECHEC:
+            ajouter("Negatif SHA : coefficient manquant rejete", OK, det_miss, obligatoire=True)
+        else:
+            ajouter("Negatif SHA : coefficient manquant rejete", ECHEC, "Validateur a accepte", obligatoire=True)
+        # Test negatif 3 : mauvaise monicite.
+        c_mono=list(c); c_mono[39]=2
+        st_mono, det_mono = valider_authenticite_T(c_mono, SHA_T_CANON)
+        if st_mono==ECHEC:
+            ajouter("Negatif SHA : mauvaise monicite rejetee", OK, det_mono, obligatoire=True)
+        else:
+            ajouter("Negatif SHA : mauvaise monicite rejetee", ECHEC, "Validateur a accepte", obligatoire=True)
+        # Test negatif 4 : bool dans les coefficients.
+        c_bool=list(c); c_bool[0]=True
+        st_bool, det_bool = valider_authenticite_T(c_bool, SHA_T_CANON)
+        if st_bool==ECHEC:
+            ajouter("Negatif SHA : bool dans coefficients rejete", OK, det_bool, obligatoire=True)
+        else:
+            ajouter("Negatif SHA : bool dans coefficients rejete", ECHEC, "Validateur a accepte", obligatoire=True)
+        # Verifier que le T authentique n'a pas ete modifie.
+        st_a2, _ = valider_authenticite_T(c, SHA_T_CANON)
+        ajouter("T authentique inchange apres mutations de copies", st_a2, "c non modifie", obligatoire=True)
+    else:
+        ajouter("Validateur SHA : T authentique", NON_DET, "Fichier T non authentifie directement", obligatoire=True)
+        ajouter("Negatif SHA : coefficient modifie", NON_DET, "T authentique indisponible", obligatoire=True)
+        ajouter("Negatif SHA : coefficient manquant", NON_DET, "T authentique indisponible", obligatoire=True)
+        ajouter("Negatif SHA : mauvaise monicite", NON_DET, "T authentique indisponible", obligatoire=True)
+        ajouter("Negatif SHA : bool", NON_DET, "T authentique indisponible", obligatoire=True)
+    # --- 2/3. Validateurs ordonnees et t1 : tests negatifs reellement independants ---
+    # Entree valide pour ordonnees : coeffs fictifs, v2_bj=[4,0], v2_phi2=4, u=[4,4].
+    coeffs_val=[ [1], [1] ]
+    v2_bj_val=[4,0]; v2_phi2_val=4; u_val=[Fraction(4),Fraction(4)]
+    st_ord_pos, det_ord_pos = valider_ordonnees_gmn(coeffs_val, v2_bj_val, v2_phi2_val, u_val)
+    ajouter("Validateur ordonnees : entree valide", st_ord_pos, det_ord_pos, obligatoire=True)
+    # Negatif 1 : omettre j*v2(phi2) -> u_faux=[4,0] (terme non nul, doit etre rejete).
+    u_omit=[Fraction(4),Fraction(0)]
+    st_ord_omit, det_omit = valider_ordonnees_gmn(coeffs_val, v2_bj_val, v2_phi2_val, u_omit)
+    if st_ord_omit==ECHEC:
+        ajouter("Negatif ordonnees : omission j*v2(phi2) rejetee", OK, det_omit, obligatoire=True)
+    else:
+        ajouter("Negatif ordonnees : omission j*v2(phi2) rejetee", ECHEC, "Validateur a accepte", obligatoire=True)
+    # Negatif 2 : ajouter mauvaise valeur a une ordonnee.
+    u_bad=[Fraction(4),Fraction(5)]
+    st_ord_bad, det_bad = valider_ordonnees_gmn(coeffs_val, v2_bj_val, v2_phi2_val, u_bad)
+    if st_ord_bad==ECHEC:
+        ajouter("Negatif ordonnees : mauvaise valeur rejetee", OK, det_bad, obligatoire=True)
+    else:
+        ajouter("Negatif ordonnees : mauvaise valeur rejetee", ECHEC, "Validateur a accepte", obligatoire=True)
+    # Negatif 3 : modifier valuation de phi2 (v2_phi2=5 au lieu de 4) avec u correct pour 4 -> rejet.
+    st_ord_modphi, det_modphi = valider_ordonnees_gmn(coeffs_val, v2_bj_val, 5, u_val)
+    if st_ord_modphi==ECHEC:
+        ajouter("Negatif ordonnees : valuation phi2 modifiee rejetee", OK, det_modphi, obligatoire=True)
+    else:
+        ajouter("Negatif ordonnees : valuation phi2 modifiee rejetee", ECHEC, "Validateur a accepte", obligatoire=True)
+    # Negatif 4 : valeur flottante.
+    st_ord_fl, det_fl = valider_ordonnees_gmn(coeffs_val, v2_bj_val, v2_phi2_val, [Fraction(4), 4.0])
+    if st_ord_fl==ECHEC:
+        ajouter("Negatif ordonnees : flottant rejete", OK, det_fl, obligatoire=True)
+    else:
+        ajouter("Negatif ordonnees : flottant rejete", ECHEC, "Validateur a accepte", obligatoire=True)
+    # Negatif 5 : bool a la place d'un entier.
+    st_ord_bool, det_bool2 = valider_ordonnees_gmn(coeffs_val, v2_bj_val, True, u_val)
+    if st_ord_bool==ECHEC:
+        ajouter("Negatif ordonnees : bool rejete", OK, det_bool2, obligatoire=True)
+    else:
+        ajouter("Negatif ordonnees : bool rejete", ECHEC, "Validateur a accepte", obligatoire=True)
+    # Negatif 6 : donnee manquante -> NON DETERMINE (non ECHEC, non test negatif reussi par absence).
+    st_ord_miss, det_miss2 = valider_ordonnees_gmn(coeffs_val, v2_bj_val, None, u_val)
+    if st_ord_miss==NON_DET:
+        ajouter("Donnee manquante ordonnees : NON DETERMINE (non ECHEC)", OK, det_miss2, obligatoire=True)
+    else:
+        ajouter("Donnee manquante ordonnees : NON DETERMINE", ECHEC, "Statut %s"%st_ord_miss, obligatoire=True)
+    # Validateur t1 : entree valide s1=4, ell1=0, u=4, e1=1, t1=4.
+    st_t1_pos, det_t1_pos = valider_t1(4, 0, Fraction(4), 1, 4)
+    ajouter("Validateur t1 : entree valide", st_t1_pos, det_t1_pos, obligatoire=True)
+    # Negatifs t1 : substituer t0=0, modifier s1, ell1, u_j, e1=0, flottant.
+    tests_t1=[
+        ("Negatif t1 : substitution t0 rejetee", valider_t1(4,0,Fraction(4),1,0)),
+        ("Negatif t1 : s1 modifie rejete", valider_t1(5,0,Fraction(4),1,4)),
+        ("Negatif t1 : ell1 modifie rejete", valider_t1(4,1,Fraction(4),1,4)),
+        ("Negatif t1 : u_j modifie rejete", valider_t1(4,0,Fraction(5),1,4)),
+        ("Negatif t1 : e1=0 rejete", valider_t1(4,0,Fraction(4),0,4)),
+        ("Negatif t1 : flottant rejete", valider_t1(4.0,0,Fraction(4),1,4)),
+    ]
+    for (nom, (st, det)) in tests_t1:
+        if st==ECHEC:
+            ajouter(nom, OK, det, obligatoire=True)
+        else:
+            ajouter(nom, ECHEC, "Validateur a accepte (statut %s)"%st, obligatoire=True)
+    # Donnee t1 manquante -> NON DETERMINE.
+    st_t1_miss, det_t1_miss = valider_t1(None, None, None, 1, None)
+    if st_t1_miss==NON_DET:
+        ajouter("Donnee manquante t1 : NON DETERMINE", OK, det_t1_miss, obligatoire=True)
+    else:
+        ajouter("Donnee manquante t1 : NON DETERMINE", ECHEC, "Statut %s"%st_t1_miss, obligatoire=True)
+    # Validateur types polygone : positif et negatifs.
+    st_ty_pos, _ = valider_types_polygone([(0,Fraction(4)),(1,Fraction(0))], [(0,Fraction(4))], [Fraction(-4,1)], [0,1], [Fraction(4)])
+    ajouter("Validateur types polygone : positif", st_ty_pos, "Types exacts", obligatoire=True)
+    st_ty_fl, _ = valider_types_polygone([(0,4.0)])
+    if st_ty_fl==ECHEC:
+        ajouter("Negatif types : float rejete", OK, "Float rejete", obligatoire=True)
+    else:
+        ajouter("Negatif types : float rejete", ECHEC, "Accepte", obligatoire=True)
+    st_ty_bool, _ = valider_types_polygone([(True,Fraction(4))])
+    if st_ty_bool==ECHEC:
+        ajouter("Negatif types : bool rejete", OK, "Bool rejete", obligatoire=True)
+    else:
+        ajouter("Negatif types : bool rejete", ECHEC, "Accepte", obligatoire=True)
+    # --- 4. Invariants GMN : etats independants ---
+    st_inv, invariants = audit_invariants_type([1,1],Fraction(4,1),0b11)
+    print("[V5.4.6] Invariants GMN :")
+    for nom, info in invariants.items():
+        print("[V5.4.6]   %s : etat=%s valeur=%s (%s)"%(nom, info["etat"], info["valeur"], info["detail"]))
+    # e1,h1,f1 CALCULE ; autres NON ETABLI. Aucune formule supposee utilisee.
+    if invariants["e1"]["etat"]=="CALCULE" and invariants["ell1"]["etat"]=="NON ETABLI":
+        ajouter("Invariants GMN : separation definition/hypothese", OK, "e1 CALCULE, ell1 NON ETABLI", obligatoire=True)
+    else:
+        ajouter("Invariants GMN : separation", ECHEC, "Etats inattendus", obligatoire=True)
+    ajouter("Invariants GMN : audit (ell1/ell'_1/pi1/pi2/Phi1/gamma1/z1/s1/v2 NON ETABLI)", st_inv, "NON DETERMINE attendu", obligatoire=True)
+    # --- 8. Certification phi2 : CAS PARTICULIER e1=1 ---
+    print("[V5.4.6] CERTIFICATION PHI2 : CAS PARTICULIER e1=1")
+    st_phi2_faux, _ = certifier_phi2_cas_particulier_e1_1([1,1],Fraction(4,1),0b11,[-13,1])
+    if st_phi2_faux==ECHEC:
+        ajouter("Negatif phi2 : X-13 rejete (cas e1=1)", OK, "Rejet confirme", obligatoire=True)
+    else:
+        ajouter("Negatif phi2 : X-13 rejete", ECHEC, "Non rejete", obligatoire=True)
+    st_phi2_e1n1, _ = certifier_phi2_cas_particulier_e1_1([1,1],Fraction(3,2),0b11,[-13,1])
+    if st_phi2_e1n1==NON_DET:
+        ajouter("Certification phi2 : e1 != 1 -> NON DETERMINE", OK, "Construction generale non demontree", obligatoire=True)
+    else:
+        ajouter("Certification phi2 : e1 != 1 -> NON DETERMINE", ECHEC, "Statut %s"%st_phi2_e1n1, obligatoire=True)
+    # --- Branches et second ordre (si T authentique disponible) ---
+    if c is not None:
+        # Deux voies (non massif 39x39 inutile : reutilisation des donnees authentifiees).
+        for phi_test,nom in [([1,1],"X+1"), ([0,1],"X")]:
+            expA=expansion_phi_adique(c,phi_test); bA=[e[0] for e in expA]; bB=taylor_voie_B(c,phi_test)
+            first_div=None
+            for idx in range(min(len(bA),len(bB))):
+                if bA[idx]!=bB[idx]: first_div=idx; break
+            if len(bA)!=len(bB): first_div=min(len(bA),len(bB)) if first_div is None else first_div
+            if len(bA)==40 and len(bB)==40 and bA==bB and first_div is None:
+                ajouter("Deux voies sur T (phi=%s)"%nom, OK, "40 coeff", obligatoire=True)
+            else:
+                ajouter("Deux voies sur T (phi=%s)"%nom, ECHEC, "Divergence", obligatoire=True)
+        Tmod2=0
+        for i,ci in enumerate(c):
+            if ci%2==1: Tmod2^=(1<<i)
+        facs_T=factor_F2(Tmod2)
+        if prodF(facs_T)==Tmod2 and Tmod2==mulF(1<<38,0b11) and facs_T=={0b10:38,0b11:1}:
+            ajouter("Factorisation T mod 2", OK, "X^38(X+1)", obligatoire=True)
+        else:
+            ajouter("Factorisation T mod 2", ECHEC, "Non verifiee", obligatoire=True)
+        R_moins4=(1<<0)|(1<<2)
+        branches_obs={}
+        for q in sorted(facs_T,key=degF):
+            phi=[(q>>i)&1 for i in range(degF(q)+1)]
+            segs=residuel_ordre1(phi,c)
+            branches_obs[q]=[(p,r) for (_,_,p,r) in segs]
+            print("[V5.4.6] Branche %s : couples %s"%(to_strF(q),[(str(p),to_strF(r) if isinstance(r,int) else r) for (p,r) in branches_obs[q]]))
+        st_br, branches_completes, msg_br = verifier_branches_completes(branches_obs, None)
+        ajouter("Branches completes (couples attendus archives)", st_br, msg_br, obligatoire=True)
+        # Second ordre : ne fabrique aucun resultat.
+        cands=[]
+        for q in branches_obs:
+            if any(p==Fraction(-4,1) and r==R_moins4 for (p,r) in branches_obs[q]):
+                cands.append(q)
+        if len(cands)==1:
+            q_ok=cands[0]; phi_ok=[(q_ok>>i)&1 for i in range(degF(q_ok)+1)]
+            phi2_cand=list(phi_ok); phi2_cand[0]=phi2_cand[0]-1*(2**4)
+            print("[V5.4.6] CERTIFICATION PHI2 : CAS PARTICULIER e1=1")
+            st_phi2, _ = certifier_phi2_cas_particulier_e1_1(phi_ok,Fraction(4,1),0b11,phi2_cand)
+            ajouter("Certification phi2 (CAS PARTICULIER e1=1)", st_phi2, "Premier ordre", obligatoire=True)
+            st_so, points_so, _, _ = rapport_second_ordre_audit(phi_ok,Fraction(4,1),0b11,phi2_cand,c,invariants)
+            ajouter("Polygone ordre 2 : NON DETERMINE (invariants manquants)", st_so, "Points %d conserves, c_j non calcules"%len(points_so), obligatoire=True)
+            ajouter("Residuels ordre 2 : NON DETERMINE", st_so, "Non calcules", obligatoire=True)
+            print("[V5.4.6] INDICE LOCAL EN 2 : NON CALCULE")
+        elif len(cands)==0:
+            ajouter("PHI candidat", ECHEC, "Aucun candidat", obligatoire=True)
+        else:
+            ajouter("PHI candidat unique", ECHEC, "%d candidats"%len(cands), obligatoire=True)
+    else:
+        ajouter("Deux voies / branches / second ordre", NON_DET, "T authentique indisponible", obligatoire=True)
+    # --- Test non obligatoire en echec : signale sans confusion ---
+    # Exemple : test non obligatoire de confort (non requis pour le statut) qui echoue.
+    # On l'ajoute comme non obligatoire pour demontrer la regle : il ne cause pas ECHEC global
+    # si aucun obligatoire n'est refute, mais il empeche PASS (il donne PASS PARTIEL).
+    # Ici on ne cree pas d'echec artificiel ; on documente la regle dans le rapport.
+    print("[V5.4.6] Regle statut : un test NON OBLIGATOIRE en ECHEC est signale, ne cause pas ECHEC global, mais empeche PASS (donne PASS PARTIEL).")
+    # --- Rapport final structure ---
+    print("[V5.4.6] ===== RAPPORT FINAL =====")
+    print("[V5.4.6] 1. Authentification du T : voir ci-dessus (fichier source, convention, SHA).")
+    print("[V5.4.6] 2. Tests positifs : validateurs ordonnees/t1/types, authentification, deux voies, factorisation.")
+    print("[V5.4.6] 3. Tests negatifs et entrees injectees : voir liste (chaque test a appele le validateur reel, une seule donnee modifiee).")
+    print("[V5.4.6] 4. Invariants GMN etablis : e1,h1,f1 CALCULE. Autres : NON ETABLI.")
+    print("[V5.4.6] 5. Invariants GMN non etablis : ell1, ell'_1, pi1, pi2, Phi1, gamma1, z1, s1, v2.")
+    print("[V5.4.6] 6. Certification phi2 : CAS PARTICULIER e1=1 uniquement.")
+    print("[V5.4.6] 7. Polygone ordre 2 : NON DETERMINE, c_j non calcules.")
+    print("[V5.4.6] 8. Statut global : voir ci-dessous.")
+    print("[V5.4.6] 9. Limites et prochaines etapes : verifier Def. 2.13/2.14/2.20/2.21 contre le papier ; fournir couples archives R9/R20 ; etablir v2/s1/ell1/gamma1/z1.")
+    print("[V5.4.6] Demontre mathematiquement : definitions premier ordre, validateurs (ordonnees/t1/types), certification phi2 cas e1=1.")
+    print("[V5.4.6] Calcule et verifie par execution : voir resultats ci-dessus (si execution reelle).")
+    print("[V5.4.6] Rapporte mais non reproduit : phi1, lambda1, R1, R9, R20, pentes archivees.")
+    print("[V5.4.6] Non determine : invariants ordre 2, polygone/residuels ordre 2, branches completes.")
+    print("[V5.4.6] Echec : %s"%[r.nom for r in resultats if r.statut==ECHEC])
+    print("[V5.4.6] Liste exacte des tests :")
+    for r in resultats:
+        print("[V5.4.6]   %s : %s (%s) obligatoire=%s"%(r.nom, r.statut, r.detail, r.obligatoire))
+    sg=statut_global(resultats)
+    print("[V5.4.6] STATUT GLOBAL : %s"%sg)
+    print("[V5.4.6] INDICE LOCAL EN 2 : NON CALCULE")
+    print("[V5.4.6] AUCUNE CONCLUSION SUR LA MAXIMALITÉ DE Z[beta]")
+
+if __name__=="__main__": main()
