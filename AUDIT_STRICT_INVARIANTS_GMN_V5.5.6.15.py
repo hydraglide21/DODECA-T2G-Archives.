@@ -1,0 +1,1559 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+AUDIT STRICT INVARIANTS GMN V5.5.6.15.
+Nouveau fichier autonome. Toutes les versions historiques anterieures sont conservees, inchangees.
+Correction de cette nouvelle version :
+A1 docstring et identification de version corrigees ;
+A2 impasse ordre 2 renommee, ancien point d'entree conserve ;
+A3 verrous mathematiques et retours NON_DET conserves ;
+A4 commentaire explicite sur le SHA historique inverifiable ;
+A5 contrat de exige_resultat_none documente sans changement logique ;
+A6 tests parseur et C13 isoles par cas, secours sans doublon de message et retour None sans nouveau resultat ;
+A7 categories Resultat fermees et statut NON_DET normalise ;
+A8 architecture monolithique, sans nouvel import.
+Aucun verrou mathematique leve. Aucun PASS GLOBAL. Aucune certification GMN.
+Python standard library uniquement. Calculs entiers et Fraction exacts.
+"""
+import hashlib, math, os, py_compile, re, sys, datetime
+from fractions import Fraction
+OK="OK"; ECHEC="ECHEC"; NON_DET="NON_DET"
+CALCULE="CALCULÉ"; CONDITIONNEL="CONDITIONNEL"; OUVERT="OUVERT"; TEST_LOGICIEL="TEST_LOGICIEL"
+CATEGORIES_VALIDES=frozenset((CALCULE,CONDITIONNEL,NON_DET,OUVERT,TEST_LOGICIEL))
+CALCUL_FORMEL_OK="CALCUL_FORMEL_OK"; CANDIDAT_GMN="CANDIDAT_GMN"; CERTIFICATION_GMN="CERTIFICATION_GMN"
+CALCUL_LOCAL_EFFECTIF_IMPLEMENTE=False; ENUMERATION_BRANCHES_EFFECTIVE=False; CERTIFICATION_LOCALE_ETABLIE=False
+_SENTINELLE=object()
+def _flag(nom):
+    if nom not in globals(): return (NON_DET,None,"variable %s absente : absence != preuve"%nom,"_flag absence")
+    v=globals()[nom]
+    if type(v) is bool: return (OK,v,"variable %s bool exact %s"%(nom,v),"_flag bool")
+    return (ECHEC,None,"variable %s type invalide %s"%(nom,type(v).__name__),"_flag type")
+def to_frac_strict(x,nom="valeur"):
+    if type(x) is int: return Fraction(x)
+    if type(x) is Fraction: return x
+    raise TypeError("%s: conversion interdite %s (%r)"%(nom,type(x).__name__,x))
+class Resultat:
+    def __init__(self,nom,statut,detail="",obligatoire=True,raison="",detecteur="",categorie=NON_DET):
+        if statut not in (OK,ECHEC,NON_DET): raise ValueError("Statut non autorise")
+        if not isinstance(categorie,str) or categorie not in CATEGORIES_VALIDES:
+            raise ValueError("Categorie Resultat non autorisee : %r"%(categorie,))
+        self.nom=nom; self.statut=statut; self.detail=detail; self.obligatoire=obligatoire; self.raison=raison; self.detecteur=detecteur; self.categorie=categorie
+
+def statut_global(resultats):
+    try:
+        if not isinstance(resultats,(list,tuple)): return ("ECHEC GLOBAL","Collection invalide")
+        if len([r for r in resultats if getattr(r,"obligatoire",False)])==0: return ("ECHEC GLOBAL","Liste obligatoire vide")
+        for r in resultats:
+            if getattr(r,"statut",None) not in (OK,ECHEC,NON_DET): return ("ECHEC GLOBAL","Statut non autorise")
+            if type(getattr(r,"obligatoire",None)) is not bool: return ("ECHEC GLOBAL","Drapeau obligatoire invalide")
+        if any(getattr(r,"statut",None)==ECHEC and getattr(r,"obligatoire",False) for r in resultats): return ("ECHEC GLOBAL","Obligatoire refute")
+        return ("PASS PARTIEL","Verrou V5.5.6.15 : PASS GLOBAL impossible, preuves non etablies.")
+    except Exception as e: return ("ECHEC GLOBAL","Erreur statut_global : %s"%e)
+def _check_gf2(x,nom):
+    if type(x) is bool: return (ECHEC,None,"GF2 %s : bool refuse"%nom)
+    if not type(x) is int: return (ECHEC,None,"GF2 %s : type %s"%(nom,type(x).__name__))
+    if x<0: return (ECHEC,None,"GF2 %s : negatif refuse"%nom)
+    return (OK,x,"GF2 %s : int >=0"%nom)
+def _unpack_check_gf2_3(valeur,contexte):
+    if not isinstance(valeur,tuple): return (ECHEC,None,"contrat _check_gf2 rompu a %s : type %s, attendu tuple 3 valeurs"%(contexte,type(valeur).__name__))
+    if len(valeur)!=3: return (ECHEC,None,"contrat _check_gf2 rompu a %s : obtenu %d valeurs, attendu 3"%(contexte,len(valeur)))
+    return (valeur[0],valeur[1],valeur[2])
+def degF(p):
+    st,_,raison=_check_gf2(p,"degF")
+    if st!=OK: return (st,None,raison,"_check_gf2 degF")
+    if p==0: return (OK,-1,"degF(0)=-1 convention","degF nul")
+    return (OK,p.bit_length()-1,"degF","degF")
+def mulF(a,b):
+    s1,_,r1=_check_gf2(a,"mulF a")
+    if s1!=OK: return (s1,None,r1,"_check_gf2 mulF a")
+    s2,_,r2=_check_gf2(b,"mulF b")
+    if s2!=OK: return (s2,None,r2,"_check_gf2 mulF b")
+    if a==0 or b==0: return (OK,0,"mulF nul","mulF nul")
+    r=0; aa,bb=a,b
+    while bb:
+        if bb&1: r^=aa
+        aa<<=1; bb>>=1
+    return (OK,r,"mulF","mulF")
+def divmodF(a,b):
+    s1,_,r1=_check_gf2(a,"divmodF a")
+    if s1!=OK: return (s1,None,None,r1,"_check_gf2 divmodF a")
+    s2,_,r2=_check_gf2(b,"divmodF b")
+    if s2!=OK: return (s2,None,None,r2,"_check_gf2 divmodF b")
+    if b==0: return (ECHEC,None,None,"diviseur nul","divmodF diviseur nul")
+    if a==0: return (OK,0,0,"divmodF(0,b)=(0,0)","divmodF nul")
+    _,db,_,_=degF(b); q,r=0,a
+    while r:
+        _,dr,_,_=degF(r)
+        if dr<db: break
+        s=dr-db; q^=(1<<s); r^=(b<<s)
+    return (OK,q,r,"divmodF","divmodF")
+def modF(a,b):
+    st,q,r,raison,det=divmodF(a,b)
+    if st!=OK: return (st,None,raison,det)
+    return (OK,r,"modF",det)
+def gcdF(a,b):
+    s1,_,r1=_check_gf2(a,"gcdF a")
+    if s1!=OK: return (s1,None,r1,"_check_gf2 gcdF a")
+    s2,_,r2=_check_gf2(b,"gcdF b")
+    if s2!=OK: return (s2,None,r2,"_check_gf2 gcdF b")
+    if a==0 and b==0: return (ECHEC,None,"gcdF(0,0) indefini","gcdF nuls")
+    if a==0: return (OK,b,"gcdF(0,b)=b","gcdF nul")
+    if b==0: return (OK,a,"gcdF(a,0)=a","gcdF nul")
+    x,y=a,b
+    for _ in range(10000):
+        if y==0: break
+        st,_,r,_,_=divmodF(x,y)
+        if st!=OK: return (st,None,"gcdF divmod","gcdF divmod")
+        x,y=y,r
+    else: return (ECHEC,None,"gcdF limite","gcdF limite")
+    return (OK,x,"gcdF","gcdF")
+def derivF(p):
+    st,_,raison=_check_gf2(p,"derivF")
+    if st!=OK: return (st,None,raison,"_check_gf2 derivF")
+    if p==0: return (OK,0,"derivF(0)=0","derivF nul")
+    _,d,_,_=degF(p); r=0
+    for i in range(d+1):
+        if ((p>>i)&1) and (i%2==1): r^=(1<<(i-1))
+    return (OK,r,"derivF","derivF")
+def is_irred_rabin_strict(p):
+    st,_,raison=_unpack_check_gf2_3(_check_gf2(p,"irred"),"is_irred_rabin_strict")
+    if st!=OK: return (st,False,raison,"_check_gf2 irred")
+    if p==0: return (ECHEC,False,"irred nul","irred nul")
+    _,n,_,_=degF(p)
+    if n<=0: return (OK,False,"deg <=0","irred deg")
+    if ((p>>n)&1)!=1: return (ECHEC,False,"irred non monique","irred monicite")
+    if n==1: return (OK,True,"deg 1","irred deg1")
+    if (p&1)==0: return (OK,False,"constant nul","irred constant")
+    def pow_x_2n(n_):
+        r=0b10
+        for _ in range(n_):
+            _,rr,_,_=mulF(r,r); _,_,rr2,_,_=divmodF(rr,p); r=rr2
+        return r
+    exp=0b10
+    if pow_x_2n(n)!=exp: return (OK,False,"x^{2^n} != x","irred Rabin")
+    def prime_divisors(m):
+        res=[]; d=2
+        while d*d<=m:
+            if m%d==0:
+                res.append(d)
+                while m%d==0: m//=d
+            d+=1 if d==2 else 2
+        if m>1: res.append(m)
+        return res
+    for ell in prime_divisors(n):
+        pw=pow_x_2n(n//ell); _,g,_,_=gcdF(pw^exp,p)
+        if g!=1: return (OK,False,"pgcd !=1","irred Rabin")
+    return (OK,True,"Rabin OK","irred Rabin")
+def v2_int_strict(n):
+    if type(n) is bool or isinstance(n,float): return (ECHEC,None,"v2_int: bool/float refuse","v2_int type")
+    if not type(n) is int: return (ECHEC,None,"v2_int: non int","v2_int type")
+    if n==0: return (ECHEC,None,"v2_int(0) indefini","v2_int nul")
+    v,m=0,abs(n)
+    while m%2==0: m//=2; v+=1
+    return (OK,v,"v2","v2_int")
+def valider_coeffs_int(coeffs,nom="coeffs"):
+    if coeffs is None: return (NON_DET,"{} manquants".format(nom),"valider_coeffs_int absence")
+    if not isinstance(coeffs,list): return (ECHEC,"{} non liste".format(nom),"valider_coeffs_int type")
+    for idx,c in enumerate(coeffs):
+        if isinstance(c,float) or type(c) is bool: return (ECHEC,"{}[{}] float/bool".format(nom,idx),"valider_coeffs_int type")
+        if not type(c) is int: return (ECHEC,"{}[{}] non int".format(nom,idx),"valider_coeffs_int type")
+    return (OK,"{} int stricts".format(nom),"valider_coeffs_int")
+def poly_deg_strict(c):
+    if c is None: return (NON_DET,None,"poly manquant","poly_deg_strict absence")
+    if not isinstance(c,list): return (ECHEC,None,"poly non liste","poly_deg_strict type")
+    if len(c)==0: return (ECHEC,None,"poly vide","poly_deg_strict vide")
+    st,raison,_=valider_coeffs_int(c,"poly")
+    if st!=OK: return (st,None,raison,"poly_deg_strict coeffs")
+    if not any(c): return (OK,-1,"poly nul, degre -1","poly_deg_strict nul")
+    d=len(c)-1
+    while d>0 and c[d]==0: d-=1
+    return (OK,d,"degre","poly_deg_strict")
+def poly_deg_value(c):
+    st,d,raison,det=poly_deg_strict(c)
+    if st!=OK: raise ValueError("%s (%s)"%(raison,det))
+    return d
+def poly_add(a,b):
+    try:
+        s1,r1,d1=valider_coeffs_int(a,"poly_add a")
+        if s1!=OK: return (s1,None,r1,d1)
+        s2,r2,d2=valider_coeffs_int(b,"poly_add b")
+        if s2!=OK: return (s2,None,r2,d2)
+        if len(a)==0 or len(b)==0: return (ECHEC,None,"poly_add vide","poly_add vide")
+        n=max(len(a),len(b)); r=[(a[i] if i<len(a) else 0)+(b[i] if i<len(b) else 0) for i in range(n)]
+        while len(r)>1 and r[-1]==0: r.pop()
+        return (OK,r or [0],"poly_add","poly_add")
+    except Exception as e: return (ECHEC,None,"Exception poly_add : %s"%e,"poly_add exception")
+def poly_mul(a,b):
+    try:
+        s1,r1,d1=valider_coeffs_int(a,"poly_mul a")
+        if s1!=OK: return (s1,None,r1,d1)
+        s2,r2,d2=valider_coeffs_int(b,"poly_mul b")
+        if s2!=OK: return (s2,None,r2,d2)
+        if len(a)==0 or len(b)==0: return (ECHEC,None,"poly_mul vide","poly_mul vide")
+        r=[0]*(len(a)+len(b)-1)
+        for i,ca in enumerate(a):
+            for j,cb in enumerate(b): r[i+j]+=ca*cb
+        while len(r)>1 and r[-1]==0: r.pop()
+        return (OK,r or [0],"poly_mul","poly_mul")
+    except Exception as e: return (ECHEC,None,"Exception poly_mul : %s"%e,"poly_mul exception")
+def poly_divmod_strict(a,b):
+    try:
+        s1,_,_=valider_coeffs_int(a,"a"); s2,_,_=valider_coeffs_int(b,"b")
+        if s1!=OK: return (s1,None,None,"a invalide","poly_divmod_strict a")
+        if s2!=OK: return (s2,None,None,"b invalide","poly_divmod_strict b")
+        if len(a)==0 or len(b)==0: return (ECHEC,None,None,"vide","poly_divmod_strict vide")
+        if not any(b): return (ECHEC,None,None,"diviseur nul","poly_divmod_strict diviseur nul")
+        db=poly_deg_value(b)
+        if b[db]!=1: return (ECHEC,None,None,"diviseur non monique","poly_divmod_strict monicite")
+        r=list(a)
+        while len(r)<len(b): r.append(0)
+        q=[0]*(max(0,len(a)-db)+1)
+        for k in range(len(a)-1,db-1,-1):
+            if k<len(r) and r[k]!=0:
+                cc=r[k]; q[k-db]=cc
+                for j in range(db+1): r[k-db+j]-=cc*b[j]
+        while len(r)>1 and r[-1]==0: r.pop()
+        while len(q)>1 and q[-1]==0: q.pop()
+        return (OK,q,r,"poly_divmod","poly_divmod_strict")
+    except Exception as e: return (ECHEC,None,None,"Exception poly_divmod: %s"%e,"poly_divmod_strict exception")
+def expansion_phi_adique_strict(T,phi):
+    try:
+        s1,_,_=valider_coeffs_int(T,"T"); s2,_,_=valider_coeffs_int(phi,"phi")
+        if s1!=OK: return (s1,None,"T invalide","expansion T")
+        if s2!=OK: return (s2,None,"phi invalide","expansion phi")
+        if len(T)==0 or len(phi)==0: return (ECHEC,None,"vide","expansion vide")
+        if not any(phi): return (ECHEC,None,"phi nul","expansion phi nul")
+        sd,deg_phi,rd,dd=poly_deg_strict(phi)
+        if sd!=OK: return (sd,None,rd,dd)
+        if deg_phi<1: return (ECHEC,None,"phi constant","expansion phi constant")
+        if phi[deg_phi]!=1: return (ECHEC,None,"phi non monique","expansion monicite")
+        coeffs,reste=[],list(T)
+        for _ in range(101):
+            st,q,r,raison,det=poly_divmod_strict(reste,phi)
+            if st!=OK: return (st,None,raison,det)
+            coeffs.append(r)
+            if len(q)==1 and q[0]==0: break
+            reste=q
+        else: return (NON_DET,None,"Limite 101 atteinte","expansion limite")
+        recon,puis=[0],[1]
+        for a in coeffs:
+            sm,prod,rm,dm=poly_mul(a,puis)
+            if sm!=OK: return (sm,None,rm,dm)
+            sa,recon,ra,da=poly_add(recon,prod)
+            if sa!=OK: return (sa,None,ra,da)
+            sp,puis,rp,dp=poly_mul(puis,phi)
+            if sp!=OK: return (sp,None,rp,dp)
+        while len(recon)<len(T): recon.append(0)
+        while len(recon)>1 and recon[-1]==0: recon.pop()
+        t=list(T)
+        while len(t)>1 and t[-1]==0: t.pop()
+        if recon!=t: return (ECHEC,None,"expansion ne reconstruit pas T","expansion reconstruction")
+        return (OK,coeffs,"expansion","expansion")
+    except Exception as e: return (ECHEC,None,"Exception expansion: %s"%e,"expansion exception")
+def v0_poly_strict(a):
+    try:
+        st,_,_=valider_coeffs_int(a,"a")
+        if st!=OK: return (st,None,"coeffs invalides","v0 coeffs")
+        if len(a)==0: return (ECHEC,None,"v0 vide","v0 vide")
+        nz=[x for x in a if x!=0]
+        if not nz: return (ECHEC,None,"v0(0) indefinie","v0 nul")
+        vals=[]
+        for x in nz:
+            s2,v,_,_=v2_int_strict(x)
+            if s2!=OK: return (s2,None,"v2_int","v0 v2")
+            vals.append(v)
+        return (OK,min(vals),"v0","v0")
+    except Exception as e: return (ECHEC,None,"Exception v0: %s"%e,"v0 exception")
+def normaliser_residuel(coeffs):
+    try:
+        st,raison,det=valider_coeffs_int(coeffs,"residuel")
+        if st!=OK: return (st,None,None,raison,det)
+        if len(coeffs)==0: return (ECHEC,None,None,"residuel vide","normaliser vide")
+        if not any(coeffs): return (ECHEC,None,None,"residuel nul : v0 indefinie","normaliser nul")
+        sv,v0,_,_=v0_poly_strict(coeffs)
+        if sv!=OK: return (sv,None,None,"v0","normaliser v0")
+        div=2**v0; norm=[]
+        for c in coeffs:
+            if c%div!=0: return (ECHEC,None,None,"coefficient non divisible par 2^v0","normaliser divisibilite")
+            norm.append(c//div)
+        if not any(x%2==1 for x in norm): return (ECHEC,None,None,"aucun impair apres normalisation","normaliser impair")
+        if [x*div for x in norm]!=list(coeffs): return (ECHEC,None,None,"reconstruction echec","normaliser reconstruction")
+        return (OK,norm,v0,"normalisation OK : v0=%d"%v0,"normaliser_residuel")
+    except Exception as e: return (ECHEC,None,None,"Exception normaliser: %s"%e,"normaliser exception")
+def v1_poly_strict(a,phi1,lambda1):
+    try:
+        if type(lambda1) is bool or isinstance(lambda1,float) or not (type(lambda1) is int or type(lambda1) is Fraction): return (ECHEC,None,ECHEC,"lambda1 bool/float/type","certification ECHEC","v1 lambda1")
+        lam=to_frac_strict(lambda1,"lambda1"); s1,_,_=valider_coeffs_int(a,"a"); s2,_,_=valider_coeffs_int(phi1,"phi1")
+        if s1!=OK or s2!=OK or not any(a): return (ECHEC,None,ECHEC,"a/phi1 invalide ou nul","certification ECHEC","v1 entrees")
+        sv,v0phi1,_,_=v0_poly_strict(phi1)
+        if sv!=OK: return (sv,None,ECHEC,"v0(phi1)","certification ECHEC","v1 v0")
+        v1_phi=Fraction(v0phi1)+lam; se,coeffs,_,_=expansion_phi_adique_strict(a,phi1)
+        if se!=OK: return (se,None,NON_DET,"expansion","certification NON_DET","v1 expansion")
+        vals=[]
+        for j,cj in enumerate(coeffs):
+            if any(cj):
+                sv2,v0cj,_,_=v0_poly_strict(cj)
+                if sv2!=OK: return (sv2,None,ECHEC,"v0(coeff)","certification ECHEC","v1 v0")
+                vals.append(Fraction(v0cj)+Fraction(j)*v1_phi)
+        if not vals: return (ECHEC,None,ECHEC,"v1 aucun terme","certification ECHEC","v1 vide")
+        return (OK,min(vals),NON_DET,"CALCUL_FORMEL_OK : min formel = %s"%min(vals),"CERTIFICATION_GMN NON_DET","v1")
+    except Exception as e: return (ECHEC,None,ECHEC,"Exception v1: %s"%e,"certification ECHEC","v1 exception")
+def red1_poly_strict(a,phi1,lambda1):
+    try:
+        if type(lambda1) is bool or isinstance(lambda1,float) or not (type(lambda1) is int or type(lambda1) is Fraction): return (ECHEC,None,None,None,None,ECHEC,"lambda1 bool/float/type","certification ECHEC","red1 lambda1")
+        lam=to_frac_strict(lambda1,"lambda1"); e1=lam.denominator; s1,_,_=valider_coeffs_int(a,"a"); s2,_,_=valider_coeffs_int(phi1,"phi1")
+        if s1!=OK or s2!=OK or not any(a): return (ECHEC,None,None,None,None,ECHEC,"a/phi1 invalide ou nul","certification ECHEC","red1 entrees")
+        sv,v0phi1,_,_=v0_poly_strict(phi1)
+        if sv!=OK: return (sv,None,None,None,None,ECHEC,"v0(phi1)","certification ECHEC","red1 v0")
+        v1_phi=Fraction(v0phi1)+lam; se,coeffs,_,_=expansion_phi_adique_strict(a,phi1)
+        if se!=OK: return (se,None,None,None,None,NON_DET,"expansion","certification NON_DET","red1 expansion")
+        det=[]
+        for t,ct in enumerate(coeffs):
+            if any(ct):
+                sv2,v0ct,_,_=v0_poly_strict(ct)
+                if sv2!=OK: return (sv2,None,None,None,None,ECHEC,"v0","certification ECHEC","red1 v0")
+                det.append((t,ct,Fraction(v0ct)+Fraction(t)*v1_phi))
+        if not det: return (ECHEC,None,None,None,None,ECHEC,"red1 aucun terme","certification ECHEC","red1 vide")
+        v1=min(d[2] for d in det); tmin=[d[0] for d in det if d[2]==v1]; t0=min(tmin)
+        for t in tmin:
+            if (t-t0)%e1!=0: return (ECHEC,None,None,None,None,ECHEC,"normalisation","certification ECHEC","red1 normalisation")
+        if poly_deg_value(phi1)==1:
+            P=0
+            for (t,ct,_) in det:
+                if t in tmin:
+                    if len(ct)!=1 or ct[0]==0: return (ECHEC,None,None,None,None,ECHEC,"coeff","certification ECHEC","red1 coeff")
+                    sv3,vv,_,_=v2_int_strict(ct[0])
+                    if sv3!=OK or (ct[0]//(2**vv))%2!=1: return (ECHEC,None,None,None,None,ECHEC,"coeff normalise","certification ECHEC","red1 coeff")
+                    P^=(1<<((t-t0)//e1))
+            return (OK,P,t0,e1,v1,NON_DET,"CALCUL_FORMEL_OK","CERTIFICATION_GMN NON_DET","red1")
+        phi_mod2=0
+        for i,cc in enumerate(phi1):
+            if cc%2==1: phi_mod2^=(1<<i)
+        Pd={}
+        for (t,ct,_) in det:
+            if t in tmin:
+                sn,ad,_,_,_=normaliser_residuel(ct)
+                if sn!=OK: return (sn,None,None,None,None,ECHEC,"normalisation residuel","certification ECHEC","red1 normaliser")
+                am=0
+                for j,cc in enumerate(ad):
+                    if cc%2==1: am^=(1<<j)
+                sm,coeff,_,_=modF(am,phi_mod2) if phi_mod2!=0 else (OK,am,"","")
+                if sm!=OK: return (sm,None,None,None,None,ECHEC,"mod","certification ECHEC","red1 mod")
+                e=(t-t0)//e1; Pd[e]=Pd.get(e,0)^coeff
+        return (OK,Pd,t0,e1,v1,NON_DET,"CALCUL_FORMEL_OK","CERTIFICATION_GMN NON_DET","red1")
+    except Exception as e: return (ECHEC,None,None,None,None,ECHEC,"Exception red1: %s"%e,"certification ECHEC","red1 exception")
+def valider_points_polygone(points):
+    try:
+        if points is None: return (NON_DET,"points manquants","valider_points absence")
+        if not isinstance(points,list) or len(points)==0: return (ECHEC,"points non liste ou vide","valider_points type")
+        prev=None
+        for idx,pt in enumerate(points):
+            if not isinstance(pt,tuple) or len(pt)!=2: return (ECHEC,"point %d incomplet"%idx,"valider_points structure")
+            x,y=pt
+            if isinstance(x,float) or type(x) is bool or not type(x) is int: return (ECHEC,"abscisse %d invalide"%idx,"valider_points abscisse")
+            if isinstance(y,float) or type(y) is bool or not (type(y) is int or type(y) is Fraction): return (ECHEC,"ordonnee %d invalide"%idx,"valider_points ordonnee")
+            if prev is not None and (x==prev or x<prev): return (ECHEC,"abscisses non strictement croissantes","valider_points ordre")
+            prev=x
+        return (OK,"points valides","valider_points")
+    except Exception as e: return (ECHEC,"Exception valider_points: %s"%e,"valider_points exception")
+def _unpack_enveloppe_4(valeur,contexte):
+    if not isinstance(valeur,tuple): return (ECHEC,None,"contrat enveloppe rompu a %s : type %s, attendu tuple 4 valeurs"%(contexte,type(valeur).__name__),"enveloppe arite")
+    if len(valeur)!=4: return (ECHEC,None,"contrat enveloppe rompu a %s : obtenu %d valeurs, attendu 4"%(contexte,len(valeur)),"enveloppe arite")
+    return (valeur[0],valeur[1],valeur[2],valeur[3])
+def _unpack_irred_4(valeur,contexte):
+    if not isinstance(valeur,tuple): return (ECHEC,False,"contrat irred rompu a %s : type %s"%(contexte,type(valeur).__name__),"irred arite")
+    if len(valeur)!=4: return (ECHEC,False,"contrat irred rompu a %s : obtenu %d valeurs, attendu 4"%(contexte,len(valeur)),"irred arite")
+    return (valeur[0],valeur[1],valeur[2],valeur[3])
+def calculer_enveloppe_inf(points):
+    try:
+        st,_,_=valider_points_polygone(points)
+        if st!=OK: return (st,None,"points invalides","enveloppe points")
+        hull=[]
+        for p in points:
+            while len(hull)>=2:
+                x1,y1=hull[-2]; x2,y2=hull[-1]; x3,y3=p
+                if Fraction(y2-y1,x2-x1)>=Fraction(y3-y2,x3-x2): hull.pop()
+                else: break
+            hull.append(p)
+        s2,r2,d2=valider_points_polygone(hull)
+        if s2!=OK: return (s2,None,r2,d2)
+        return (OK,hull,"enveloppe","enveloppe")
+    except Exception as e: return (ECHEC,None,"Exception enveloppe: %s"%e,"enveloppe exception")
+def residuel_ordre1_strict(phi,T):
+    try:
+        s1,_,_=valider_coeffs_int(phi,"phi"); s2,_,_=valider_coeffs_int(T,"T")
+        if s1!=OK or s2!=OK or not any(phi): return (ECHEC,None,ECHEC,"phi/T invalide","certification ECHEC","residuel entrees")
+        se,coeffs,_,_=expansion_phi_adique_strict(T,phi)
+        if se!=OK: return (se,None,NON_DET,"expansion","certification NON_DET","residuel expansion")
+        d=poly_deg_value(phi); pts=[]
+        for i,a in enumerate(coeffs):
+            if any(a):
+                sv,v0a,_,_=v0_poly_strict(a)
+                if sv!=OK: return (sv,None,ECHEC,"v0","certification ECHEC","residuel v0")
+                pts.append((i,Fraction(v0a)))
+        sh,hull,raison_enveloppe,detecteur_enveloppe=_unpack_enveloppe_4(calculer_enveloppe_inf(pts),"residuel")
+        if sh!=OK: return (sh,None,ECHEC,raison_enveloppe,"certification ECHEC",detecteur_enveloppe)
+        segs=[]
+        for k in range(len(hull)-1):
+            x0,y0=hull[k]; x1,y1=hull[k+1]; L=x1-x0; Hh=y0-y1
+            if not isinstance(Hh,Fraction): return (ECHEC,None,ECHEC,"Hh non Fraction","certification ECHEC","residuel Hh type")
+            if Hh.denominator!=1: return (ECHEC,None,ECHEC,"Hh non entier : %s"%Hh,"certification ECHEC","residuel Hh entier")
+            dd=math.gcd(L,int(Hh)) if Hh!=0 else L
+            e=L//dd if dd else L; pente=Fraction(-Hh,L)
+            if d==1:
+                res=0
+                for i in range(x0,x1+1):
+                    y_exp=Fraction(y0)-Fraction(Hh*(i-x0),L)
+                    if y_exp.denominator==1 and (i,int(y_exp)) in pts and (i-x0)%e==0: res^=(1<<((i-x0)//e))
+                segs.append((x0,x1,pente,res))
+            else:
+                phi_mod2=0
+                for i,cc in enumerate(phi):
+                    if cc%2==1: phi_mod2^=(1<<i)
+                rl=[]
+                for i in range(x0,x1+1):
+                    y_exp=Fraction(y0)-Fraction(Hh*(i-x0),L)
+                    if y_exp.denominator==1 and (i,int(y_exp)) in pts and (i-x0)%e==0:
+                        sn,ad,_,_,_=normaliser_residuel(coeffs[i])
+                        if sn!=OK: return (sn,None,ECHEC,"normalisation","certification ECHEC","residuel normaliser")
+                        am=0
+                        for j,cc in enumerate(ad):
+                            if cc%2==1: am^=(1<<j)
+                        sm,coeff,_,_=modF(am,phi_mod2) if phi_mod2!=0 else (OK,am,"","")
+                        rl.append(((i-x0)//e,coeff))
+                segs.append((x0,x1,pente,rl))
+        return (OK,segs,NON_DET,"CALCUL_FORMEL_OK : polygone formel, CANDIDAT_GMN","CERTIFICATION_GMN NON_DET","residuel")
+    except Exception as e: return (ECHEC,None,ECHEC,"Exception residuel: %s"%e,"certification ECHEC","residuel exception")
+def valider_v2_gmn(coeffs,preuve_locale,representation):
+    try:
+        if coeffs is None: return (NON_DET,None,"b_j manquant","valider_v2_gmn absence")
+        if representation is None: return (NON_DET,None,"representation manquante","valider_v2_gmn representation")
+        sc,_,_=valider_coeffs_int(coeffs,"b_j")
+        if sc!=OK or len(coeffs)==0 or not any(coeffs): return (sc if sc!=OK else ECHEC,None,"b_j invalide/vide/nul","valider_v2_gmn coeffs")
+        sf,val_f,rf,df=_flag("CALCUL_LOCAL_EFFECTIF_IMPLEMENTE")
+        if sf!=OK: return (sf,None,rf,df)
+        if not val_f: return (NON_DET,None,"calcul local non implemente","valider_v2_gmn calcul_local_manquant")
+        return (NON_DET,None,"calcul local non justifie","valider_v2_gmn")
+    except Exception as e: return (ECHEC,None,"Exception valider_v2_gmn: %s"%e,"valider_v2_gmn exception")
+def calculer_u_j_arithmetique(v2_bj,j,v2_phi2,prov_bj,prov_phi2):
+    try:
+        if v2_bj is None or v2_phi2 is None or j is None: return (NON_DET,None,NON_DET,"donnee manquante","interpretation GMN NON_DET","calculer_u_j absence")
+        for nom,val in [("v2_bj",v2_bj),("j",j),("v2_phi2",v2_phi2)]:
+            if isinstance(val,float) or type(val) is bool or not (type(val) is int or type(val) is Fraction): return (ECHEC,None,ECHEC,"%s float/bool/type"%nom,"interpretation GMN ECHEC","calculer_u_j type")
+        if type(j) is not int or j<0: return (ECHEC,None,ECHEC,"j entier >=0 exige","interpretation GMN ECHEC","calculer_u_j j")
+        u=to_frac_strict(v2_bj,"v2_bj")+Fraction(j)*to_frac_strict(v2_phi2,"v2_phi2")
+        return (OK,u,NON_DET,"arithmetique OK : %s"%u,"interpretation GMN NON_DET : provenance non demontree","calculer_u_j")
+    except Exception as e: return (ECHEC,None,ECHEC,"Exception calculer_u_j: %s"%e,"interpretation GMN ECHEC","calculer_u_j exception")
+def valider_structure_bj_list(lst):
+    try:
+        if lst is None: return (NON_DET,"coeffs b_j manquants","structure_bj absence")
+        if not isinstance(lst,list): return (ECHEC,"coeffs b_j non liste","structure_bj type")
+        for j,bj in enumerate(lst):
+            if bj is None: return (NON_DET,"b_j manquant j=%d"%j,"structure_bj absence")
+            st,_,_=valider_coeffs_int(bj,"b_j j=%d"%j)
+            if st!=OK: return (st,"b_j j=%d invalide"%j,"structure_bj")
+        return (OK,"structure b_j valide","structure_bj")
+    except Exception as e: return (ECHEC,"Exception structure_bj: %s"%e,"structure_bj exception")
+def valider_types_uj_list(lst):
+    try:
+        if lst is None: return (NON_DET,"u_j manquants","types_uj absence")
+        if not isinstance(lst,list): return (ECHEC,"u_j non liste","types_uj type")
+        for j,uj in enumerate(lst):
+            if uj is None: continue
+            if type(uj) is bool or isinstance(uj,float) or not (type(uj) is int or type(uj) is Fraction): return (ECHEC,"u_j j=%d bool/float/type"%j,"types_uj type")
+        return (OK,"types u_j valides","types_uj")
+    except Exception as e: return (ECHEC,"Exception types_uj: %s"%e,"types_uj exception")
+def valider_ordonnees_gmn(coeffs_bj_list,phi2,u_j_list,preuve_bj,representation,preuve_phi2):
+    try:
+        ss,rs,ds=valider_structure_bj_list(coeffs_bj_list)
+        if ss!=OK: return (ss,"STRUCTURE : "+rs,ds)
+        st,rt,dt=valider_types_uj_list(u_j_list)
+        if st!=OK: return (st,"TYPES : "+rt,dt)
+        if len(coeffs_bj_list)!=len(u_j_list): return (ECHEC,"STRUCTURE : longueurs incoherentes","ordonnees longueurs")
+        for j,(bj,uj) in enumerate(zip(coeffs_bj_list,u_j_list)):
+            if all(c==0 for c in bj) and uj is not None: return (ECHEC,"b_j=0 mais u_j non None j=%d"%j,"ordonnees b_j nul")
+        for j,(bj,uj) in enumerate(zip(coeffs_bj_list,u_j_list)):
+            if all(c==0 for c in bj): continue
+            sv,_,rv,dv=valider_v2_gmn(bj,preuve_bj,representation)
+            if sv!=OK: return (sv,"VERROU AMONT CERTIFICATION : v2(b_j) j=%d : %s ; couple NON VERIFIE"%(j,rv),"ordonnees verrou amont v2")
+            if uj is None: return (NON_DET,"u_j manquant j=%d"%j,"ordonnees u_j absence")
+        return (OK,"ordonnees GMN verifiees","ordonnees")
+    except Exception as e: return (ECHEC,"Exception ordonnees: %s"%e,"ordonnees exception")
+def valider_t1(s1,ell1,u_j,e1,t1_propose,hypotheses,exige_integrite,exige_positivite,provenance):
+    try:
+        if type(exige_integrite) is not bool or type(exige_positivite) is not bool: return (ECHEC,None,ECHEC,"exige_* type non bool","certification ECHEC","t1 exige type")
+        if e1 is None: return (NON_DET,None,NON_DET,"e1 manquant","certification NON_DET","t1 e1 absence")
+        if isinstance(e1,float) or type(e1) is bool or not type(e1) is int or e1<=0: return (ECHEC,None,ECHEC,"e1 float/bool/non int/<=0","certification ECHEC","t1 e1")
+        for nom,val in [("s1",s1),("ell1",ell1),("u_j",u_j)]:
+            if val is None: return (NON_DET,None,NON_DET,"%s manquant"%nom,"certification NON_DET","t1 %s absence"%nom)
+            if isinstance(val,float) or type(val) is bool or not (type(val) is int or type(val) is Fraction): return (ECHEC,None,ECHEC,"%s float/bool/type"%nom,"certification ECHEC","t1 %s type"%nom)
+        if t1_propose is None: return (NON_DET,None,NON_DET,"t1 propose manquant","certification NON_DET","t1 propose absence")
+        if isinstance(t1_propose,float) or type(t1_propose) is bool or not (type(t1_propose) is int or type(t1_propose) is Fraction): return (ECHEC,None,ECHEC,"t1 propose float/bool/type","certification ECHEC","t1 propose type")
+        resF=(to_frac_strict(s1,"s1")-to_frac_strict(ell1,"ell1")*to_frac_strict(u_j,"u_j"))/Fraction(e1)
+        if exige_integrite and resF.denominator!=1: return (ECHEC,None,ECHEC,"t1 non entier %s"%resF,"certification ECHEC","t1 integrite")
+        if exige_positivite and resF<0: return (ECHEC,None,ECHEC,"t1 negatif %s"%resF,"certification ECHEC","t1 positivite")
+        if to_frac_strict(t1_propose,"t1")!=resF: return (ECHEC,None,ECHEC,"t1 propose != exact %s"%resF,"certification ECHEC","t1 recalcul")
+        if hypotheses is not True: return (OK,resF,NON_DET,"calcul exact OK : t1 = %s"%resF,"certification NON_DET : hypotheses non etablies","t1 hypotheses")
+        if provenance is None: return (OK,resF,NON_DET,"calcul exact OK","certification NON_DET : provenance manquante","t1 provenance")
+        return (OK,resF,NON_DET,"calcul exact OK","certification NON_DET : True != preuve","t1 certification")
+    except Exception as e: return (ECHEC,None,ECHEC,"Exception t1: %s"%e,"certification ECHEC","t1 exception")
+def verifier_convention_historique(): return (NON_DET,"Convention historique NON DETERMINE : documentation independante manquante.")
+def parser_strict_fichier_T(texte):
+    try:
+        if texte is None: return (NON_DET,None,"Fichier absent : NON_DET","parser absence")
+        if not isinstance(texte,str): return (ECHEC,None,"texte non str","parser type")
+        lignes=[l.strip() for l in texte.splitlines()]; has_c=any(l.startswith("c_") for l in lignes); has_H=any(l.startswith("H=") for l in lignes)
+        if has_H and not has_c: return (NON_DET,None,"Forme H= : reconstruction non etablie","parser H=")
+        coeffs={}
+        for line in lignes:
+            if line=="" or line.startswith("#") or line.startswith("HEADER:"): continue
+            if line.startswith("c_"):
+                m=re.match(r"^c_(\d+)=(-?\d+)$",line)
+                if not m: return (ECHEC,None,"Ligne mal formee : %r"%line,"parser malforme")
+                idx=int(m.group(1))
+                if idx<0 or idx>39: return (ECHEC,None,"Indice hors plage c_%d"%idx,"parser hors plage")
+                if idx in coeffs: return (ECHEC,None,"Indice duplique c_%d"%idx,"parser duplique")
+                coeffs[idx]=int(m.group(2))
+            else: return (ECHEC,None,"Ligne inconnue : %r"%line,"parser inconnue")
+        if len(coeffs)!=40: return (ECHEC,None,"Coefficients manquants : %d/40"%len(coeffs),"parser manquant")
+        if sorted(coeffs.keys())!=list(range(40)): return (ECHEC,None,"Indices c_0..c_39 non exacts","parser indices")
+        c=[coeffs[i] for i in range(40)]; st,_,_=valider_coeffs_int(c,"T")
+        if st!=OK: return (st,None,"coeffs T invalides","parser coeffs")
+        return (OK,c,"parseur strict OK","parser")
+    except Exception as e: return (ECHEC,None,"Exception parser: %s"%e,"parser exception")
+def verifier_resultat_parseur(attendu,obtenu):
+    if attendu is None: return obtenu is None
+    return obtenu==attendu
+def valider_authenticite_T(coeffs,sha_attendu):
+    try:
+        sc,dc=verifier_convention_historique()
+        if sc!=OK: return (NON_DET,"authenticite = NON_DET : %s"%dc,"authenticite convention")
+        if coeffs is None or not isinstance(coeffs,list) or len(coeffs)!=40: return (ECHEC,"coeffs manquants/longueur !=40","authenticite longueur")
+        st,_,_=valider_coeffs_int(coeffs,"T")
+        if st!=OK or poly_deg_value(coeffs)!=39 or coeffs[39]!=1: return (ECHEC,"coeffs/degre/monicite","authenticite structure")
+        ser="\n".join(str(coeffs[i]) for i in range(39,-1,-1))+"\n"
+        # Code inatteignable tant que la convention historique est NON_DET : SHA historique non vérifié.
+        if hashlib.sha256(ser.encode("utf-8")).hexdigest()!=sha_attendu: return (ECHEC,"SHA != attendu","authenticite SHA")
+        return (OK,"authentification OK","authenticite")
+    except Exception as e: return (ECHEC,"Exception authentification: %s"%e,"authenticite exception")
+def valider_sha_avec_convention_test(coeffs,sha_attendu,convention_nom):
+    try:
+        if coeffs is None or not isinstance(coeffs,list) or len(coeffs)!=40: return (ECHEC,"longueur !=40","SHA test longueur")
+        st,_,_=valider_coeffs_int(coeffs,"T")
+        if st!=OK or poly_deg_value(coeffs)!=39 or coeffs[39]!=1: return (ECHEC,"structure","SHA test structure")
+        ser="\n".join(str(coeffs[i]) for i in range(39,-1,-1))+"\n"
+        if hashlib.sha256(ser.encode("utf-8")).hexdigest()!=sha_attendu: return (ECHEC,"SHA != attendu (convention test %s)"%convention_nom,"SHA test SHA")
+        return (OK,"SHA OK avec convention test %s (non historique)"%convention_nom,"SHA test")
+    except Exception as e: return (ECHEC,"Exception SHA test: %s"%e,"SHA test exception")
+def valider_structure_polynome(poly,nom):
+    try:
+        if poly is None: return (NON_DET,"%s manquant"%nom,"structure absence")
+        if not isinstance(poly,list) or len(poly)==0: return (ECHEC,"%s non liste/vide"%nom,"structure type")
+        st,_,_=valider_coeffs_int(poly,nom)
+        if st!=OK or not any(poly): return (st if st!=OK else ECHEC,"%s coeffs/nul"%nom,"structure coeffs")
+        deg=poly_deg_value(poly)
+        if poly[deg]!=1: return (ECHEC,"%s non monique"%nom,"structure monicite")
+        return (OK,"%s valide deg %d monique"%(nom,deg),"structure")
+    except Exception as e: return (ECHEC,"Exception structure %s: %s"%(nom,e),"structure exception")
+def certifier_phi2_strict(phi1,lambda1,psi1,phi2,exigee,documentee,preuve_locale,pente_fournie=_SENTINELLE,residuel_fourni=_SENTINELLE,invariant_fourni=True):
+    try:
+        if phi1 is None or lambda1 is None or psi1 is None or phi2 is None: return (ECHEC,{"raison":"ETAPE A entree absente : phi1/lambda1/psi1/phi2 None","detecteur":"certifier_phi2 absence","resultat":None})
+        if type(exigee) is not bool: return (ECHEC,{"raison":"ETAPE A exigee type non bool : %r"%(exigee,),"detecteur":"certifier_phi2 exigee","resultat":None})
+        if type(lambda1) is bool or isinstance(lambda1,float) or isinstance(lambda1,str): return (ECHEC,{"raison":"ETAPE A lambda1 bool/float/chaine","detecteur":"certifier_phi2 lambda1","resultat":None})
+        if isinstance(lambda1,tuple):
+            if len(lambda1)!=2: return (ECHEC,{"raison":"ETAPE A lambda1 tuple mal forme","detecteur":"certifier_phi2 lambda1 denominateur","resultat":None})
+            num,den=lambda1
+            if type(den) is bool or isinstance(den,float) or isinstance(den,str) or not type(den) is int: return (ECHEC,{"raison":"ETAPE A denominateur mal type","detecteur":"certifier_phi2 lambda1 denominateur","resultat":None})
+            if den==0: return (ECHEC,{"raison":"ETAPE A denominateur nul","detecteur":"certifier_phi2 lambda1 denominateur","resultat":None})
+            if type(num) is bool or isinstance(num,float) or isinstance(num,str) or not type(num) is int: return (ECHEC,{"raison":"ETAPE A numerateur mal type","detecteur":"certifier_phi2 lambda1 numerateur","resultat":None})
+            lam=Fraction(num,den)
+        elif type(lambda1) is int or type(lambda1) is Fraction: lam=to_frac_strict(lambda1,"lambda1")
+        else: return (ECHEC,{"raison":"ETAPE A lambda1 type inattendu","detecteur":"certifier_phi2 lambda1","resultat":None})
+        if pente_fournie is not _SENTINELLE:
+            if type(pente_fournie) is bool or isinstance(pente_fournie,float) or isinstance(pente_fournie,str) or not type(pente_fournie) is Fraction: return (ECHEC,{"raison":"ETAPE A pente mal typee : Fraction exacte exigee","detecteur":"certifier_phi2 pente","resultat":None})
+        if residuel_fourni is not _SENTINELLE:
+            if type(residuel_fourni) is bool: return (ECHEC,{"raison":"ETAPE A residuel bool","detecteur":"certifier_phi2 residuel","resultat":None})
+            if isinstance(residuel_fourni,float): return (ECHEC,{"raison":"ETAPE A residuel float","detecteur":"certifier_phi2 residuel","resultat":None})
+            if not type(residuel_fourni) is int: return (ECHEC,{"raison":"ETAPE A residuel type inattendu","detecteur":"certifier_phi2 residuel","resultat":None})
+        if type(psi1) is bool or isinstance(psi1,float) or isinstance(psi1,str) or not type(psi1) is int: return (ECHEC,{"raison":"ETAPE A psi1 mal forme : int exact exige","detecteur":"certifier_phi2 psi1","resultat":None})
+        if psi1==0: return (ECHEC,{"raison":"ETAPE A psi1 nul","detecteur":"certifier_phi2 psi1","resultat":None})
+        if not isinstance(phi1,list) or not isinstance(phi2,list): return (ECHEC,{"raison":"ETAPE A phi1/phi2 non listes","detecteur":"certifier_phi2 structure","resultat":None})
+        if len(phi1)==0 or len(phi2)==0: return (ECHEC,{"raison":"ETAPE A phi1/phi2 vides","detecteur":"certifier_phi2 structure","resultat":None})
+        s1,_,_=valider_coeffs_int(phi1,"phi1")
+        if s1!=OK: return (ECHEC,{"raison":"ETAPE A phi1 coeffs invalides","detecteur":"certifier_phi2 phi1","resultat":None})
+        s2,_,_=valider_coeffs_int(phi2,"phi2")
+        if s2!=OK: return (ECHEC,{"raison":"ETAPE A phi2 coeffs invalides","detecteur":"certifier_phi2 phi2","resultat":None})
+        if not any(phi1) or not any(phi2): return (ECHEC,{"raison":"ETAPE A phi1/phi2 nuls","detecteur":"certifier_phi2 structure","resultat":None})
+        deg1=poly_deg_value(phi1); deg2=poly_deg_value(phi2)
+        if phi1[deg1]!=1: return (ECHEC,{"raison":"ETAPE B phi1 non monique","detecteur":"certifier_phi2 phi1 monicite","resultat":None})
+        if phi2[deg2]!=1: return (ECHEC,{"raison":"ETAPE B phi2 non monique","detecteur":"certifier_phi2 phi2 monicite","resultat":None})
+        if deg1!=1: return (ECHEC,{"raison":"ETAPE B degre phi1 incorrect : %d != 1"%deg1,"detecteur":"certifier_phi2 phi1 degre","resultat":None})
+        if deg2!=1: return (ECHEC,{"raison":"ETAPE B degre phi2 incorrect : %d != 1"%deg2,"detecteur":"certifier_phi2 phi2 degre","resultat":None})
+        _,f1,_,_=degF(psi1)
+        if f1<=0: return (ECHEC,{"raison":"ETAPE B psi1 degre invalide","detecteur":"certifier_phi2 psi1","resultat":None})
+        if deg2!=deg1*f1: return (ECHEC,{"raison":"ETAPE B relation degres incorrecte : deg2 %d != deg1*f1 %d"%(deg2,deg1*f1),"detecteur":"certifier_phi2 degres relation","resultat":None})
+        if ((psi1>>f1)&1)!=1: return (ECHEC,{"raison":"ETAPE B psi1 non monique","detecteur":"certifier_phi2 psi1 monicite","resultat":None})
+        diff=[phi2[i]-(phi1[i] if i<len(phi1) else 0) for i in range(max(len(phi2),len(phi1)))]
+        while len(diff)>1 and diff[-1]==0: diff.pop()
+        if poly_deg_value(diff)!=0 or diff[0]==0: return (ECHEC,{"raison":"ETAPE B difference phi2-phi1 incorrecte : non constante ou nulle","detecteur":"certifier_phi2 difference","resultat":None})
+        sv2,v2d,_,_=v2_int_strict(diff[0])
+        if sv2!=OK or v2d!=lam.numerator or abs(diff[0])//(2**lam.numerator)%2!=1: return (ECHEC,{"raison":"ETAPE B v2(difference) != h1 ou d pair","detecteur":"certifier_phi2 difference v2","resultat":None})
+        se,exp,de,dede=expansion_phi_adique_strict(phi2,phi1)
+        if se!=OK: return (se,{"raison":"ETAPE B expansion : "+de,"detecteur":dede,"resultat":None})
+        pts=[]
+        for i,a in enumerate(exp):
+            if any(a):
+                sv,v0a,_,_=v0_poly_strict(a)
+                if sv!=OK: return (sv,{"raison":"ETAPE B v0","detecteur":"certifier_phi2 v0","resultat":None})
+                pts.append((i,Fraction(v0a)))
+        sh,hull,raison_enveloppe,detecteur_enveloppe=_unpack_enveloppe_4(calculer_enveloppe_inf(pts),"certifier_phi2")
+        if sh!=OK: return (ECHEC,{"raison":"ETAPE B enveloppe : "+str(raison_enveloppe),"detecteur":detecteur_enveloppe,"resultat":None})
+        if len(hull)!=2: return (ECHEC,{"raison":"ETAPE B polygone != 2 sommets","detecteur":"certifier_phi2 polygone","resultat":None})
+        (x0,y0),(x1,y1)=hull[0],hull[1]
+        if x1==x0: return (ECHEC,{"raison":"ETAPE B pente division par zero","detecteur":"certifier_phi2 pente","resultat":None})
+        pente_calculee=Fraction(-(y0-y1),x1-x0)
+        if pente_calculee!=Fraction(-lam): return (ECHEC,{"raison":"ETAPE B pente %s != -lambda1 %s"%(pente_calculee,-lam),"detecteur":"certifier_phi2 pente","resultat":None})
+        if pente_fournie is not _SENTINELLE and pente_fournie!=pente_calculee: return (ECHEC,{"raison":"ETAPE B pente fournie != pente calculee","detecteur":"certifier_phi2 pente","resultat":None})
+        sr,segs,scr,rr,rcr,dr=residuel_ordre1_strict(phi1,phi2)
+        if sr!=OK: return (sr,{"raison":"ETAPE B residuel : "+rr,"detecteur":dr,"resultat":None})
+        if len(segs)!=1: return (ECHEC,{"raison":"ETAPE B segments residuel != 1","detecteur":"certifier_phi2 residuel","resultat":None})
+        _,_,_,res_phi2=segs[0]
+        if type(res_phi2) is bool or not type(res_phi2) is int: return (ECHEC,{"raison":"ETAPE B residuel bool/non int","detecteur":"certifier_phi2 residuel","resultat":None})
+        if res_phi2!=psi1: return (ECHEC,{"raison":"ETAPE B residuel %s != psi1 %s"%(res_phi2,psi1),"detecteur":"certifier_phi2 residuel","resultat":None})
+        if residuel_fourni is not _SENTINELLE and residuel_fourni!=res_phi2: return (ECHEC,{"raison":"ETAPE B residuel fourni != residuel calcule","detecteur":"certifier_phi2 residuel","resultat":None})
+        if invariant_fourni is not True: return (ECHEC,{"raison":"ETAPE B invariant incorrect : invariant_fourni != True","detecteur":"certifier_phi2 invariant","resultat":None})
+        if documentee is not True: return (ECHEC,{"raison":"ETAPE B construction psi1 non documentee","detecteur":"certifier_phi2 invariant","resultat":None})
+        if exigee:
+            si,est_irr,ri,di=_unpack_irred_4(is_irred_rabin_strict(psi1),"certifier_phi2 exigee")
+            if si!=OK: return (si,{"raison":"ETAPE B psi1 irreductibilite arite/statut : "+ri,"detecteur":di,"resultat":None})
+            if not est_irr: return (ECHEC,{"raison":"ETAPE B psi1 irreductibilite : "+ri,"detecteur":"certifier_phi2 invariant","resultat":None})
+        if lam.denominator!=1: return (ECHEC,{"raison":"ETAPE B e1 != 1 : cas general non demontre dans ce chemin","detecteur":"certifier_phi2 e1","resultat":None})
+        sf,val_f,rf,df=_flag("CALCUL_LOCAL_EFFECTIF_IMPLEMENTE")
+        if sf!=OK: return (sf,{"raison":rf,"detecteur":df,"resultat":None})
+        if not val_f: return (NON_DET,{"raison":"ETAPE C VERROU calcul local non implemente : structure valide, certification impossible","detecteur":"certifier_phi2 calcul_local_manquant","resultat":None})
+        return (NON_DET,{"raison":"CERTIFICATION GMN NON_DET : hypotheses non etablies","detecteur":"certifier_phi2 certification","resultat":None})
+    except Exception as e: return (ECHEC,{"raison":"Exception certifier_phi2: %s"%e,"detecteur":"certifier_phi2 exception","resultat":None})
+def valider_collection_identifiants(collection):
+    try:
+        if collection is None: return (ECHEC,None,"collection None refusee","identites collection None")
+        if type(collection) is bool: return (ECHEC,None,"collection bool refusee","identites collection bool")
+        if isinstance(collection,str): return (ECHEC,None,"collection chaine refusee : liste exigee","identites collection chaine")
+        if not isinstance(collection,list): return (ECHEC,None,"collection type non autorise","identites collection type")
+        if len(collection)==0: return (ECHEC,None,"collection vide : au moins une branche exigee","identites collection vide")
+        if len(set([str(x) for x in collection]))!=len(collection): return (ECHEC,None,"identifiant duplique","identites duplique")
+        for x in collection:
+            if type(x) is not str: return (ECHEC,None,"identifiant non-string : %r"%(x,),"identites type")
+            if len(x)==0: return (ECHEC,None,"identifiant vide","identites vide")
+            if len(x.strip())==0: return (ECHEC,None,"identifiant espaces seuls","identites espaces")
+            if " " in x or "\t" in x or "\n" in x: return (ECHEC,None,"identifiant contient un espace : politique espaces interdits","identites espaces")
+            if x!=x.strip(): return (ECHEC,None,"identifiant espaces en bord","identites espaces")
+        return (OK,list(collection),"collection valide","identites")
+    except Exception as e: return (ECHEC,None,"Exception collection: %s"%e,"identites exception")
+def valider_identites_branches(perimetre,branches):
+    try:
+        if perimetre is None: return (NON_DET,"perimetre manquant","identites perimetre absence")
+        if not isinstance(perimetre,dict): return (ECHEC,"perimetre non dict","identites perimetre type")
+        if "identifiants_branches_attendus" not in perimetre: return (ECHEC,"identifiants_branches_attendus absents : source canonique manquante","identites absence")
+        attendus=perimetre["identifiants_branches_attendus"]; sc,canon,rc,dc=valider_collection_identifiants(attendus)
+        if sc!=OK: return (sc,rc,dc)
+        derive=len(canon)
+        if "branches_attendues" in perimetre:
+            hist=perimetre["branches_attendues"]
+            if type(hist) is bool or not type(hist) is int: return (ECHEC,"branches_attendues historique type non int","identites historique type")
+            if hist!=derive: return (ECHEC,"incoherence historique : branches_attendues %d != derive %d"%(hist,derive),"identites historique incoherence")
+        if branches is None: return (NON_DET,"branches manquantes","identites branches absence")
+        if not isinstance(branches,dict): return (ECHEC,"branches non dict","identites branches type")
+        sc2,fournis_list,rc2,dc2=valider_collection_identifiants(list(branches.keys()))
+        if sc2!=OK: return (sc2,rc2,dc2)
+        fournis=set(fournis_list); voulu=set(canon); manquantes=sorted(voulu-fournis); supplementaires=sorted(fournis-voulu)
+        if manquantes: return (ECHEC,"branches manquantes : %s"%manquantes,"identites manquantes")
+        if supplementaires: return (ECHEC,"branches supplementaires : %s"%supplementaires,"identites supplementaires")
+        return (OK,"identites exactes : structure coherente, exhaustivite NON demontree","identites")
+    except Exception as e: return (ECHEC,"Exception identites branches: %s"%e,"identites exception")
+def valider_perimetre_strict(perimetre,branches):
+    try:
+        if perimetre is None: return (NON_DET,"perimetre manquant","perimetre absence")
+        if not isinstance(perimetre,dict): return (ECHEC,"perimetre non dict","perimetre type")
+        if "couverture_demonteree" not in perimetre: return (ECHEC,"perimetre cle manquante couverture_demonteree","perimetre structure")
+        if type(perimetre["couverture_demonteree"]) is not bool: return (ECHEC,"couverture_demonteree type non bool","perimetre couverture type")
+        si,ri,di=valider_identites_branches(perimetre,branches)
+        if si!=OK: return (si,ri,di)
+        return (OK,"perimetre canonique valide ; couverture NON demontree","perimetre")
+    except Exception as e: return (ECHEC,"Exception perimetre: %s"%e,"perimetre exception")
+def verifier_branches_completes(branches,perimetre,hypotheses_gmn):
+    try:
+        if type(hypotheses_gmn) is not bool: return (ECHEC,None,"hypotheses_gmn type non bool","branches hypotheses_gmn type")
+        if branches is None: return (NON_DET,None,"branches manquantes","branches absence")
+        if perimetre is None: return (NON_DET,None,"perimetre non defini","branches perimetre")
+        if not isinstance(branches,dict) or len(branches)==0: return (ECHEC,None,"branches non dict/vide","branches type")
+        for nom,b in branches.items():
+            if isinstance(b,str): return (ECHEC,None,"branche %s remplacee par une chaine"%nom,"branches chaine")
+            if isinstance(b,list): return (ECHEC,None,"branche %s remplacee par une liste"%nom,"branches liste")
+            if b is None: return (ECHEC,None,"branche %s None"%nom,"branches None")
+            if type(b) is bool: return (ECHEC,None,"branche %s booleen"%nom,"branches booleen")
+            if type(b) is int: return (ECHEC,None,"branche %s entier"%nom,"branches entier")
+            if not isinstance(b,dict): return (ECHEC,None,"branche %s non dict"%nom,"branches structure")
+            for cle in ["degre","pente","multiplicite","residuel","hypotheses"]:
+                if cle not in b: return (ECHEC,None,"branche %s cle manquante %s"%(nom,cle),"branches champ absent")
+            if type(b["degre"]) is bool: return (ECHEC,None,"branche %s degre bool"%nom,"branches degre bool")
+            if isinstance(b["degre"],float) or not type(b["degre"]) is int or b["degre"]<=0: return (ECHEC,None,"branche %s degre invalide"%nom,"branches degre")
+            if isinstance(b["pente"],float) or not type(b["pente"]) is Fraction: return (ECHEC,None,"branche %s pente float/non Fraction"%nom,"branches pente")
+            if type(b["multiplicite"]) is bool or isinstance(b["multiplicite"],float) or not type(b["multiplicite"]) is int or b["multiplicite"]<=0: return (ECHEC,None,"branche %s multiplicite invalide"%nom,"branches multiplicite")
+            if type(b["residuel"]) is bool or isinstance(b["residuel"],float) or not type(b["residuel"]) is int: return (ECHEC,None,"branche %s residuel invalide"%nom,"branches residuel")
+            if type(b["hypotheses"]) is not bool: return (ECHEC,None,"branche %s hypotheses mal typees"%nom,"branches hypotheses type")
+        sp,rp,dp=valider_perimetre_strict(perimetre,branches)
+        if sp!=OK: return (sp,None,rp,dp)
+        sf,val_f,rf,df=_flag("ENUMERATION_BRANCHES_EFFECTIVE")
+        if sf!=OK: return (sf,None,rf,df)
+        if not val_f: return (NON_DET,None,"verrou branches : identites exactes, calcul formel non certifie, couverture NON demontree, certification NON etablie. Bool True != preuve.","branches verrou")
+        return (NON_DET,None,"exhaustivite non demontree","branches verrou")
+    except Exception as e: return (ECHEC,None,"Exception branches: %s"%e,"branches exception")
+def signaler_impasse_ordre2(phi2,coeffs_bj,u_j_list,residuel_ordre2,hypotheses_gmn):
+    try:
+        if phi2 is None or coeffs_bj is None or u_j_list is None or residuel_ordre2 is None: return (NON_DET,"donnees ordre 2 manquantes","ordre2 absence")
+        if hypotheses_gmn is not True: return (NON_DET,"hypotheses GMN ordre 2 non etablies","ordre2 hypotheses")
+        return (NON_DET,"ordre 2 non acheve","ordre2")
+    except Exception as e: return (NON_DET,"ordre 2 non acheve ; exception interne %s: %s"%(type(e).__name__,e),"ordre2 exception NON_DET")
+def audit_ordre2(phi2,coeffs_bj,u_j_list,residuel_ordre2,hypotheses_gmn):
+    return signaler_impasse_ordre2(phi2,coeffs_bj,u_j_list,residuel_ordre2,hypotheses_gmn)
+def detecte_fragment_markdown(texte):
+    try:
+        if texte is None or not isinstance(texte,str): return False
+        marqueur=chr(96)+chr(96)+chr(96); return marqueur in texte
+    except Exception: return False
+def verifier_integrite_source():
+    try:
+        chemin=os.path.abspath(__file__)
+        with open(chemin,"r",encoding="utf-8") as fh: contenu=fh.read()
+        lignes=contenu.splitlines(); marqueur=chr(96)+chr(96)+chr(96); marqueurs=[(i+1,l) for i,l in enumerate(lignes) if marqueur in l]
+        if marqueurs: return (ECHEC,"fragments Markdown : %s"%marqueurs,"integrite markdown")
+        try: py_compile.compile(chemin,doraise=True)
+        except Exception as e: return (ECHEC,"py_compile echec : %s"%e,"integrite py_compile")
+        if detecte_fragment_markdown("a "+marqueur+"python b") is not True: return (ECHEC,"fragment injecte NON detecte","integrite test negatif")
+        if detecte_fragment_markdown("texte propre") is not False: return (ECHEC,"detecteur fragment incoherent","integrite detecteur")
+        return (OK,"integrite : lecture OK, aucun fragment, py_compile OK, fragment injecte detecte","integrite")
+    except Exception as e: return (ECHEC,"Exception integrite: %s"%e,"integrite exception")
+def main():
+    debut = datetime.datetime.now()
+    fonctions = []
+    exceptions = []
+    resultats = []
+
+    def enregistrer_secours(nom, exc, longueur_avant=None):
+        """Enregistre un ECHEC seulement si aucun secours n'existe deja."""
+        if longueur_avant is None:
+            longueur_avant = len(resultats)
+        if len(resultats) != longueur_avant:
+            return None
+        detail = 'Exception de test %s: %s' % (type(exc).__name__, exc)
+        try:
+            r = Resultat(nom, ECHEC, detail, True, detail, 'exception test', NON_DET)
+        except Exception:
+            r = Resultat.__new__(Resultat)
+            r.nom = nom
+            r.statut = ECHEC
+            r.detail = detail
+            r.obligatoire = True
+            r.raison = detail
+            r.detecteur = 'exception test secours __new__'
+            r.categorie = NON_DET
+        resultats.append(r)
+        fonctions.append(nom)
+        message = '%s: %s: %s' % (nom, type(exc).__name__, exc)
+        exceptions.append(message)
+        print('[V5.5.6.15] ECHEC SECOURS %s | %s' % (nom, detail))
+        return r
+
+    def ajouter(nom, statut, detail='', obligatoire=True, raison='', detecteur='', categorie=NON_DET):
+        longueur_avant = len(resultats)
+        try:
+            r = Resultat(nom, statut, detail, obligatoire, raison, detecteur, categorie)
+        except Exception as e:
+            return enregistrer_secours(nom, e, longueur_avant)
+        resultats.append(r)
+        fonctions.append(nom)
+        print('[V5.5.6.15] %s : %s (%s) obligatoire=%s raison=%s detecteur=%s categorie=%s' % (nom, r.statut, detail, obligatoire, raison, detecteur, categorie))
+        return r
+
+    def test_valeur(nom, statut_attendu, statut_obtenu, valeur_attendue, valeur_obtenue, detecteur_attendu=None, detecteur_obtenu=None, categorie=CALCULE):
+        ok_test = statut_obtenu == statut_attendu and valeur_obtenue == valeur_attendue and (detecteur_attendu is None or detecteur_obtenu == detecteur_attendu)
+        print('[V5.5.6.15] TEST VALEUR %s | %s' % (nom, 'PASS' if ok_test else 'FAIL'))
+        ajouter(nom, OK if ok_test else ECHEC, 'statut=%s valeur=%r' % (statut_obtenu, valeur_obtenue), obligatoire=True, raison='statut+valeur+detecteur', detecteur=detecteur_obtenu if detecteur_obtenu is not None else '', categorie=categorie)
+        return ok_test
+    _gmn_longueur_avant_2 = len(resultats)
+    try:
+        _SENTINELLE_ABSENT = object()
+        _EXIGE_OMIS = object()
+    except Exception as _gmn_exception_2:
+        enregistrer_secours('Initialisation des fonctions auxiliaires', _gmn_exception_2, _gmn_longueur_avant_2)
+
+    def _evaluer_test_negatif(attendu_statut, obtenu_statut, raison, obtenu_detecteur, detecteur_attendu, resultat_obtenu=_SENTINELLE_ABSENT, exige_resultat_none=_EXIGE_OMIS):
+        """Contrat exige_resultat_none :
+        True exige un resultat_obtenu egal a None ;
+        False exige un resultat_obtenu non-None ;
+        None n'impose aucune exigence sur ce point.
+        La sentinelle OMIS reste distincte de None.
+        """
+        if exige_resultat_none is _EXIGE_OMIS:
+            return False
+        if exige_resultat_none is not None and type(exige_resultat_none) is not bool:
+            return False
+        if obtenu_statut != attendu_statut or obtenu_detecteur != detecteur_attendu:
+            return False
+        if raison is None or len(str(raison)) == 0:
+            return False
+        if exige_resultat_none is True:
+            if resultat_obtenu is _SENTINELLE_ABSENT or resultat_obtenu is not None:
+                return False
+        elif exige_resultat_none is False:
+            if resultat_obtenu is _SENTINELLE_ABSENT or resultat_obtenu is None:
+                return False
+        elif exige_resultat_none is None:
+            pass
+        else:
+            return False
+        return True
+
+    def test_negatif(nom, entree, fonction, attendu_statut, obtenu_statut, raison, obtenu_detecteur, detecteur_attendu, categorie=TEST_LOGICIEL, resultat_obtenu=_SENTINELLE_ABSENT, exige_resultat_none=_EXIGE_OMIS):
+        ok_test = _evaluer_test_negatif(attendu_statut, obtenu_statut, raison, obtenu_detecteur, detecteur_attendu, resultat_obtenu, exige_resultat_none)
+        print('[V5.5.6.15] TEST NEGATIF %s | %s' % (nom, 'PASS' if ok_test else 'FAIL'))
+        ajouter(nom, OK if ok_test else ECHEC, 'attendu=%s obtenu=%s exige=%s' % (attendu_statut, obtenu_statut, 'OMIS' if exige_resultat_none is _EXIGE_OMIS else repr(exige_resultat_none)), obligatoire=True, raison=raison, detecteur=obtenu_detecteur, categorie=categorie)
+        return ok_test
+
+    def verifier_c11(nom, kwargs, att_statut, att_detecteur):
+        st, det = certifier_phi2_strict(**kwargs)
+        raison = det.get('raison', '') if isinstance(det, dict) else str(det)
+        detecteur = det.get('detecteur', '') if isinstance(det, dict) else ''
+        resultat = det.get('resultat', None) if isinstance(det, dict) else None
+        ok_test = st == att_statut and detecteur == att_detecteur and (len(raison) > 0) and (resultat is None)
+        print('[V5.5.6.15] TEST C11 %s | %s' % (nom, 'PASS' if ok_test else 'FAIL'))
+        ajouter(nom, OK if ok_test else ECHEC, 'statut=%s detecteur=%s raison=%s resultat=%r' % (st, detecteur, raison, resultat), obligatoire=True, raison=raison, detecteur=detecteur, categorie=TEST_LOGICIEL)
+        return ok_test
+    _gmn_longueur_avant_3 = len(resultats)
+    try:
+        print('[V5.5.6.15] AUDIT STRICT INVARIANTS GMN V5.5.6.15. V5.5.5 a V5.5.6.11 preservees.')
+        print('[V5.5.6.15] Python %s' % sys.version.split()[0])
+        print('[V5.5.6.15] Debut %s' % debut.isoformat())
+        st_int, raison_int, det_int = verifier_integrite_source()
+        ajouter('C13 integrite source lecture + Markdown + py_compile + fragment injecte', st_int, raison_int, obligatoire=True, raison=raison_int, detecteur=det_int, categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_3:
+        enregistrer_secours('C13 integrite source lecture + Markdown + py_compile + fragment injecte', _gmn_exception_3, _gmn_longueur_avant_3)
+    _gmn_longueur_avant_4 = len(resultats)
+    try:
+        ajouter('C13 fragment injecte detecte', OK if detecte_fragment_markdown('x ' + chr(96) * 3 + 'python y') else ECHEC, 'detecteur negatif', obligatoire=True, raison='fragment injecte', detecteur='detecte_fragment_markdown', categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_4:
+        enregistrer_secours('C13 fragment injecte detecte', _gmn_exception_4, _gmn_longueur_avant_4)
+    _gmn_longueur_avant_5 = len(resultats)
+    try:
+        ajouter('C13 texte propre non signale', OK if not detecte_fragment_markdown('texte propre sans marqueur') else ECHEC, 'pas de faux positif', obligatoire=True, raison='texte propre', detecteur='detecte_fragment_markdown', categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_5:
+        enregistrer_secours('C13 texte propre non signale', _gmn_exception_5, _gmn_longueur_avant_5)
+    _gmn_longueur_avant_6 = len(resultats)
+    try:
+        cas_moteur = [('Moteur True + absent -> False', ECHEC, ECHEC, 'r', 'd', 'd', _SENTINELLE_ABSENT, True, False), ('Moteur True + None -> True', ECHEC, ECHEC, 'r', 'd', 'd', None, True, True), ('Moteur True + non-None -> False', ECHEC, ECHEC, 'r', 'd', 'd', 1, True, False), ('Moteur False + absent -> False', ECHEC, ECHEC, 'r', 'd', 'd', _SENTINELLE_ABSENT, False, False), ('Moteur False + None -> False', ECHEC, ECHEC, 'r', 'd', 'd', None, False, False), ('Moteur False + non-None -> True', ECHEC, ECHEC, 'r', 'd', 'd', 1, False, True), ('Moteur None + absent -> True', ECHEC, ECHEC, 'r', 'd', 'd', _SENTINELLE_ABSENT, None, True), ('Moteur None + None -> True', ECHEC, ECHEC, 'r', 'd', 'd', None, None, True), ('Moteur None + non-None -> True', ECHEC, ECHEC, 'r', 'd', 'd', 1, None, True), ('Moteur omis -> False', ECHEC, ECHEC, 'r', 'd', 'd', None, _EXIGE_OMIS, False), ('Moteur 0 -> False', ECHEC, ECHEC, 'r', 'd', 'd', None, 0, False), ('Moteur 1 -> False', ECHEC, ECHEC, 'r', 'd', 'd', None, 1, False), ("Moteur 'True' -> False", ECHEC, ECHEC, 'r', 'd', 'd', None, 'True', False), ("Moteur 'False' -> False", ECHEC, ECHEC, 'r', 'd', 'd', None, 'False', False)]
+    except Exception as _gmn_exception_6:
+        enregistrer_secours('Preparation des cas C10 exige_resultat_none', _gmn_exception_6, _gmn_longueur_avant_6)
+    _gmn_longueur_avant_8 = len(resultats)
+    try:
+        for nom, att, obt, raison, det_obt, det_att, res, exige, attendu_bool in cas_moteur:
+            _gmn_longueur_avant_7 = len(resultats)
+            try:
+                obtenu_bool = _evaluer_test_negatif(att, obt, raison, det_obt, det_att, res, exige)
+                ajouter(nom, OK if obtenu_bool == attendu_bool else ECHEC, 'obtenu=%s attendu=%s' % (obtenu_bool, attendu_bool), obligatoire=True, raison='coeur moteur', detecteur='_evaluer_test_negatif', categorie=TEST_LOGICIEL)
+            except Exception as _gmn_exception_7:
+                enregistrer_secours('Test ligne 773 (nom)', _gmn_exception_7, _gmn_longueur_avant_7)
+    except Exception as _gmn_exception_8:
+        enregistrer_secours('Test ligne 773 (nom)', _gmn_exception_8, _gmn_longueur_avant_8)
+    _gmn_longueur_avant_9 = len(resultats)
+    try:
+        sg, det_sg = statut_global([Resultat('a', OK, '', True), Resultat('b', OK, '', True)])
+        ajouter('Verrou : tous OK -> PASS PARTIEL max', OK if sg == 'PASS PARTIEL' else ECHEC, 'sg=%s' % sg, obligatoire=True, raison=det_sg, detecteur='statut_global', categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_9:
+        enregistrer_secours('Verrou : tous OK -> PASS PARTIEL max', _gmn_exception_9, _gmn_longueur_avant_9)
+    _gmn_longueur_avant_10 = len(resultats)
+    try:
+        sg, det_sg = statut_global([])
+        ajouter('Verrou : liste vide -> ECHEC GLOBAL', OK if sg == 'ECHEC GLOBAL' else ECHEC, 'sg=%s' % sg, obligatoire=True, raison=det_sg, detecteur='statut_global', categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_10:
+        enregistrer_secours('Verrou : liste vide -> ECHEC GLOBAL', _gmn_exception_10, _gmn_longueur_avant_10)
+    _gmn_longueur_avant_11 = len(resultats)
+    try:
+        st, val, raison, det = mulF(5, 3)
+        test_valeur('GF2 mulF', OK, st, 15, val, 'mulF', det, categorie=CALCULE)
+    except Exception as _gmn_exception_11:
+        enregistrer_secours('GF2 mulF', _gmn_exception_11, _gmn_longueur_avant_11)
+    _gmn_longueur_avant_12 = len(resultats)
+    try:
+        st, val, raison, det = degF(5)
+        test_valeur('GF2 degF', OK, st, 2, val, 'degF', det, categorie=CALCULE)
+    except Exception as _gmn_exception_12:
+        enregistrer_secours('GF2 degF', _gmn_exception_12, _gmn_longueur_avant_12)
+    _gmn_longueur_avant_13 = len(resultats)
+    try:
+        st, q, r, raison, det = divmodF(15, 3)
+        test_valeur('GF2 divmodF quotient', OK, st, 5, q, 'divmodF', det, categorie=CALCULE)
+    except Exception as _gmn_exception_13:
+        enregistrer_secours('GF2 divmodF quotient', _gmn_exception_13, _gmn_longueur_avant_13)
+    _gmn_longueur_avant_14 = len(resultats)
+    try:
+        test_valeur('GF2 divmodF reste', OK, st, 0, r, 'divmodF', det, categorie=CALCULE)
+    except Exception as _gmn_exception_14:
+        enregistrer_secours('GF2 divmodF reste', _gmn_exception_14, _gmn_longueur_avant_14)
+    _gmn_longueur_avant_15 = len(resultats)
+    try:
+        st, val, raison, det = gcdF(5, 3)
+        test_valeur('GF2 gcdF', OK, st, 3, val, 'gcdF', det, categorie=CALCULE)
+    except Exception as _gmn_exception_15:
+        enregistrer_secours('GF2 gcdF', _gmn_exception_15, _gmn_longueur_avant_15)
+    _gmn_longueur_avant_16 = len(resultats)
+    try:
+        st, val, raison, det = derivF(5)
+        test_valeur('GF2 derivF', OK, st, 0, val, 'derivF', det, categorie=CALCULE)
+    except Exception as _gmn_exception_16:
+        enregistrer_secours('GF2 derivF', _gmn_exception_16, _gmn_longueur_avant_16)
+    _gmn_longueur_avant_17 = len(resultats)
+    try:
+        st, val, raison, det = degF(True)
+        test_negatif('GF2 degF bool', 'True', 'degF', ECHEC, st, raison, det, '_check_gf2 degF', categorie=TEST_LOGICIEL, resultat_obtenu=val, exige_resultat_none=True)
+    except Exception as _gmn_exception_17:
+        enregistrer_secours('GF2 degF bool', _gmn_exception_17, _gmn_longueur_avant_17)
+    _gmn_longueur_avant_19 = len(resultats)
+    try:
+        for _x, _st, _v in [(True, ECHEC, None), (False, ECHEC, None), (1.5, ECHEC, None), ('5', ECHEC, None), ([5], ECHEC, None), (None, ECHEC, None), (-1, ECHEC, None), (-7, ECHEC, None), (0, OK, 0), (1, OK, 1), (5, OK, 5)]:
+            _gmn_longueur_avant_18 = len(resultats)
+            try:
+                _r = _check_gf2(_x, 'test _check_gf2')
+                ajouter('REGRESSION V5.5.6.15 _check_gf2 %r -> %s 3 valeurs' % (_x, _st), OK if isinstance(_r, tuple) and len(_r) == 3 and (_r[0] == _st) and (_r[1] == _v) else ECHEC, 'ret=%r' % (_r,), obligatoire=True, raison=_r[2] if isinstance(_r, tuple) and len(_r) == 3 else 'arite', detecteur='_check_gf2 arite', categorie=TEST_LOGICIEL)
+            except Exception as _gmn_exception_18:
+                enregistrer_secours("Test ligne 783 ('REGRESSION V5.5.6.15 _check_gf2 %r -> %s 3 valeurs' % (_x, _st))", _gmn_exception_18, _gmn_longueur_avant_18)
+    except Exception as _gmn_exception_19:
+        enregistrer_secours("Test ligne 783 ('REGRESSION V5.5.6.15 _check_gf2 %r -> %s 3 valeurs' % (_x, _st))", _gmn_exception_19, _gmn_longueur_avant_19)
+    _gmn_longueur_avant_20 = len(resultats)
+    try:
+        _g4 = _unpack_check_gf2_3((OK, 5, 'x', 'detecteur-en-trop'), 'test garde 4 valeurs')
+        ajouter('REGRESSION V5.5.6.15 garde _check_gf2 4 valeurs -> ECHEC sans exception', OK if _g4[0] == ECHEC and 'attendu 3' in _g4[2] else ECHEC, 'guard=%r' % (_g4,), obligatoire=True, raison='garde arite', detecteur='_check_gf2 arite', categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_20:
+        enregistrer_secours('REGRESSION V5.5.6.15 garde _check_gf2 4 valeurs -> ECHEC sans exception', _gmn_exception_20, _gmn_longueur_avant_20)
+    _gmn_longueur_avant_21 = len(resultats)
+    try:
+        _g2 = _unpack_check_gf2_3((OK, 5), 'test garde 2 valeurs')
+        ajouter('REGRESSION V5.5.6.15 garde _check_gf2 2 valeurs -> ECHEC sans exception', OK if _g2[0] == ECHEC and 'attendu 3' in _g2[2] else ECHEC, 'guard=%r' % (_g2,), obligatoire=True, raison='garde arite', detecteur='_check_gf2 arite', categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_21:
+        enregistrer_secours('REGRESSION V5.5.6.15 garde _check_gf2 2 valeurs -> ECHEC sans exception', _gmn_exception_21, _gmn_longueur_avant_21)
+    _gmn_longueur_avant_22 = len(resultats)
+    try:
+        _gnt = _unpack_check_gf2_3('pas un tuple', 'test garde non tuple')
+        ajouter('REGRESSION V5.5.6.15 garde _check_gf2 non tuple -> ECHEC sans exception', OK if _gnt[0] == ECHEC and 'attendu tuple 3' in _gnt[2] else ECHEC, 'guard=%r' % (_gnt,), obligatoire=True, raison='garde arite', detecteur='_check_gf2 arite', categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_22:
+        enregistrer_secours('REGRESSION V5.5.6.15 garde _check_gf2 non tuple -> ECHEC sans exception', _gmn_exception_22, _gmn_longueur_avant_22)
+    _gmn_longueur_avant_23 = len(resultats)
+    try:
+        _irr3 = _unpack_irred_4(is_irred_rabin_strict(3), 'regression V5.5.6.15 is_irred 0b11')
+        ajouter('REGRESSION V5.5.6.15 is_irred_rabin_strict(0b11) sans ValueError -> 4 valeurs OK True', OK if _irr3[0] == OK and _irr3[1] is True else ECHEC, 'irr=%r' % (_irr3,), obligatoire=True, raison=_irr3[2] if len(_irr3) == 4 else 'arite', detecteur=_irr3[3] if len(_irr3) == 4 else 'irred arite', categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_23:
+        enregistrer_secours('REGRESSION V5.5.6.15 is_irred_rabin_strict(0b11) sans ValueError -> 4 valeurs OK True', _gmn_exception_23, _gmn_longueur_avant_23)
+    _gmn_longueur_avant_24 = len(resultats)
+    try:
+        _irr_b = _unpack_irred_4(is_irred_rabin_strict(True), 'regression V5.5.6.15 is_irred bool')
+        ajouter('REGRESSION V5.5.6.15 is_irred_rabin_strict(True) bool refuse -> ECHEC', OK if _irr_b[0] == ECHEC and _irr_b[1] is False else ECHEC, 'irr=%r' % (_irr_b,), obligatoire=True, raison='bool refuse', detecteur='_check_gf2 irred', categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_24:
+        enregistrer_secours('REGRESSION V5.5.6.15 is_irred_rabin_strict(True) bool refuse -> ECHEC', _gmn_exception_24, _gmn_longueur_avant_24)
+    _gmn_longueur_avant_25 = len(resultats)
+    try:
+        _irr_n = _unpack_irred_4(is_irred_rabin_strict(-3), 'regression V5.5.6.15 is_irred negatif')
+        ajouter('REGRESSION V5.5.6.15 is_irred_rabin_strict(-3) negatif refuse -> ECHEC', OK if _irr_n[0] == ECHEC and _irr_n[1] is False else ECHEC, 'irr=%r' % (_irr_n,), obligatoire=True, raison='negatif refuse', detecteur='_check_gf2 irred', categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_25:
+        enregistrer_secours('REGRESSION V5.5.6.15 is_irred_rabin_strict(-3) negatif refuse -> ECHEC', _gmn_exception_25, _gmn_longueur_avant_25)
+    _gmn_longueur_avant_26 = len(resultats)
+    try:
+        _irr_f = _unpack_irred_4(is_irred_rabin_strict(2.5), 'regression V5.5.6.15 is_irred float')
+        ajouter('REGRESSION V5.5.6.15 is_irred_rabin_strict(2.5) float refuse -> ECHEC', OK if _irr_f[0] == ECHEC and _irr_f[1] is False else ECHEC, 'irr=%r' % (_irr_f,), obligatoire=True, raison='float refuse', detecteur='_check_gf2 irred', categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_26:
+        enregistrer_secours('REGRESSION V5.5.6.15 is_irred_rabin_strict(2.5) float refuse -> ECHEC', _gmn_exception_26, _gmn_longueur_avant_26)
+    _gmn_longueur_avant_27 = len(resultats)
+    try:
+        st, res, raison, det = poly_add([1, 2], [3, 4])
+        test_valeur('poly_add', OK, st, [4, 6], res, 'poly_add', det, categorie=CALCULE)
+    except Exception as _gmn_exception_27:
+        enregistrer_secours('poly_add', _gmn_exception_27, _gmn_longueur_avant_27)
+    _gmn_longueur_avant_28 = len(resultats)
+    try:
+        st, res, raison, det = poly_add([1], [True])
+        test_negatif('poly_add bool', '[True]', 'poly_add', ECHEC, st, raison, det, 'valider_coeffs_int type', categorie=TEST_LOGICIEL, resultat_obtenu=res, exige_resultat_none=True)
+    except Exception as _gmn_exception_28:
+        enregistrer_secours('poly_add bool', _gmn_exception_28, _gmn_longueur_avant_28)
+    _gmn_longueur_avant_29 = len(resultats)
+    try:
+        st, res, raison, det = poly_mul([1, 1], [1, 1])
+        test_valeur('poly_mul', OK, st, [1, 2, 1], res, 'poly_mul', det, categorie=CALCULE)
+    except Exception as _gmn_exception_29:
+        enregistrer_secours('poly_mul', _gmn_exception_29, _gmn_longueur_avant_29)
+    _gmn_longueur_avant_30 = len(resultats)
+    try:
+        st, coeffs, raison, det = expansion_phi_adique_strict([1, 1], [1, 1])
+        test_valeur('Expansion', OK, st, [[0], [1]], coeffs, 'expansion', det, categorie=CALCULE)
+    except Exception as _gmn_exception_30:
+        enregistrer_secours('Expansion', _gmn_exception_30, _gmn_longueur_avant_30)
+    _gmn_longueur_avant_31 = len(resultats)
+    try:
+        st, coeffs, raison, det = expansion_phi_adique_strict([1, 1], [5])
+        test_negatif('Expansion phi constant', 'phi=[5]', 'expansion', ECHEC, st, raison, det, 'expansion phi constant', categorie=TEST_LOGICIEL, resultat_obtenu=coeffs, exige_resultat_none=True)
+    except Exception as _gmn_exception_31:
+        enregistrer_secours('Expansion phi constant', _gmn_exception_31, _gmn_longueur_avant_31)
+    _gmn_longueur_avant_32 = len(resultats)
+    try:
+        st, hull, raison, det = calculer_enveloppe_inf([(0, Fraction(4)), (1, Fraction(2)), (2, Fraction(0))])
+        test_valeur('Polygone colineaires', OK, st, [(0, Fraction(4)), (2, Fraction(0))], hull, 'enveloppe', det, categorie=CALCULE)
+    except Exception as _gmn_exception_32:
+        enregistrer_secours('Polygone colineaires', _gmn_exception_32, _gmn_longueur_avant_32)
+    _gmn_longueur_avant_34 = len(resultats)
+    try:
+        for cas_env, entree_env, att_st_env, att_det_env in [('Enveloppe valide', [(0, Fraction(4)), (1, Fraction(2)), (2, Fraction(0))], OK, 'enveloppe'), ('Enveloppe None', None, NON_DET, 'enveloppe points'), ('Enveloppe vide', [], ECHEC, 'enveloppe points'), ('Enveloppe non liste', 'abc', ECHEC, 'enveloppe points'), ('Enveloppe abscisse bool', [(True, Fraction(1)), (1, Fraction(0))], ECHEC, 'enveloppe points'), ('Enveloppe ordonnee float', [(0, 1.5), (1, Fraction(0))], ECHEC, 'enveloppe points'), ('Enveloppe non croissante', [(0, Fraction(4)), (0, Fraction(0))], ECHEC, 'enveloppe points'), ('Enveloppe decroissante', [(1, Fraction(0)), (0, Fraction(4))], ECHEC, 'enveloppe points')]:
+            _gmn_longueur_avant_33 = len(resultats)
+            try:
+                env_val = calculer_enveloppe_inf(entree_env)
+                ajouter('REGRESSION V5.5.6.15 %s : 4 valeurs, statut=%s' % ('enveloppe ' + cas_env, att_st_env), OK if isinstance(env_val, tuple) and len(env_val) == 4 and (env_val[0] == att_st_env) and (env_val[3] == att_det_env) else ECHEC, 'env=%r' % (env_val,), obligatoire=True, raison='contrat 4 valeurs', detecteur='enveloppe arite', categorie=TEST_LOGICIEL)
+            except Exception as _gmn_exception_33:
+                enregistrer_secours("Test ligne 798 ('REGRESSION V5.5.6.15 %s : 4 valeurs, statut=%s' % ('enveloppe ' + cas_env, att_)", _gmn_exception_33, _gmn_longueur_avant_33)
+    except Exception as _gmn_exception_34:
+        enregistrer_secours("Test ligne 798 ('REGRESSION V5.5.6.15 %s : 4 valeurs, statut=%s' % ('enveloppe ' + cas_env, att_)", _gmn_exception_34, _gmn_longueur_avant_34)
+    _gmn_longueur_avant_35 = len(resultats)
+    try:
+        env_guard = _unpack_enveloppe_4((OK, [(0, Fraction(4))], 'x'), 'test garde 3 valeurs')
+        ajouter('REGRESSION V5.5.6.15 garde enveloppe 3 valeurs -> ECHEC arite sans exception', OK if env_guard[0] == ECHEC and env_guard[3] == 'enveloppe arite' else ECHEC, 'guard=%r' % (env_guard,), obligatoire=True, raison='garde arite', detecteur='enveloppe arite', categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_35:
+        enregistrer_secours('REGRESSION V5.5.6.15 garde enveloppe 3 valeurs -> ECHEC arite sans exception', _gmn_exception_35, _gmn_longueur_avant_35)
+    _gmn_longueur_avant_36 = len(resultats)
+    try:
+        env_guard2 = _unpack_enveloppe_4('pas un tuple', 'test garde non tuple')
+        ajouter('REGRESSION V5.5.6.15 garde enveloppe non tuple -> ECHEC arite sans exception', OK if env_guard2[0] == ECHEC and env_guard2[3] == 'enveloppe arite' else ECHEC, 'guard=%r' % (env_guard2,), obligatoire=True, raison='garde arite', detecteur='enveloppe arite', categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_36:
+        enregistrer_secours('REGRESSION V5.5.6.15 garde enveloppe non tuple -> ECHEC arite sans exception', _gmn_exception_36, _gmn_longueur_avant_36)
+    _gmn_longueur_avant_37 = len(resultats)
+    try:
+        irr_guard = _unpack_irred_4((OK, True, 'deg 1'), 'test garde irred 3 valeurs')
+        ajouter('REGRESSION V5.5.6.15 garde irred 3 valeurs -> ECHEC arite sans exception', OK if irr_guard[0] == ECHEC and irr_guard[3] == 'irred arite' else ECHEC, 'guard=%r' % (irr_guard,), obligatoire=True, raison='garde arite', detecteur='irred arite', categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_37:
+        enregistrer_secours('REGRESSION V5.5.6.15 garde irred 3 valeurs -> ECHEC arite sans exception', _gmn_exception_37, _gmn_longueur_avant_37)
+    _gmn_longueur_avant_38 = len(resultats)
+    try:
+        si_r, est_r, ri_r, di_r = _unpack_irred_4(is_irred_rabin_strict(3), 'regression irred deg1')
+        ajouter('REGRESSION V5.5.6.15 is_irred deg1 psi1=0b11 -> 4 valeurs OK True', OK if si_r == OK and est_r is True and (len((si_r, est_r, ri_r, di_r)) == 4) else ECHEC, 'irr=%r' % ((si_r, est_r, ri_r, di_r),), obligatoire=True, raison=ri_r, detecteur=di_r, categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_38:
+        enregistrer_secours('REGRESSION V5.5.6.15 is_irred deg1 psi1=0b11 -> 4 valeurs OK True', _gmn_exception_38, _gmn_longueur_avant_38)
+    _gmn_longueur_avant_41 = len(resultats)
+    try:
+        for entree, attendu_norm, attendu_v0 in [([12, 20], [3, 5], 2), ([-12, 20], [-3, 5], 2), ([6, 10], [3, 5], 1), ([-8, -12], [-2, -3], 2)]:
+            _gmn_longueur_avant_39 = len(resultats)
+            try:
+                sn, norm, v0n, rn, dn = normaliser_residuel(entree)
+                test_valeur('C08 normaliser %s' % (entree,), OK, sn, attendu_norm, norm, 'normaliser_residuel', dn, categorie=CALCULE)
+            except Exception as _gmn_exception_39:
+                enregistrer_secours("Test ligne 804 ('C08 normaliser %s' % (entree,))", _gmn_exception_39, _gmn_longueur_avant_39)
+            _gmn_longueur_avant_40 = len(resultats)
+            try:
+                ajouter('C08 reconstruction + impair %s' % (entree,), OK if sn == OK and v0n == attendu_v0 and any((x % 2 == 1 for x in norm)) and ([x * 2 ** v0n for x in norm] == list(entree)) else ECHEC, 'v0=%s' % v0n, obligatoire=True, raison=rn, detecteur=dn, categorie=TEST_LOGICIEL)
+            except Exception as _gmn_exception_40:
+                enregistrer_secours("Test ligne 804 ('C08 reconstruction + impair %s' % (entree,))", _gmn_exception_40, _gmn_longueur_avant_40)
+    except Exception as _gmn_exception_41:
+        enregistrer_secours("Test ligne 804 ('C08 normaliser %s' % (entree,))", _gmn_exception_41, _gmn_longueur_avant_41)
+    _gmn_longueur_avant_43 = len(resultats)
+    try:
+        for entree, att_st, att_det in [([0, 0], ECHEC, 'normaliser nul'), ([True, 2], ECHEC, 'valider_coeffs_int type'), ([1.5, 2], ECHEC, 'valider_coeffs_int type'), ([], ECHEC, 'normaliser vide'), (None, NON_DET, 'valider_coeffs_int absence'), ('abc', ECHEC, 'valider_coeffs_int type'), (123, ECHEC, 'valider_coeffs_int type')]:
+            _gmn_longueur_avant_42 = len(resultats)
+            try:
+                sn, norm, v0n, rn, dn = normaliser_residuel(entree)
+                test_negatif('C08 normaliser %r' % (entree,), repr(entree), 'normaliser_residuel', att_st, sn, rn, dn, att_det, categorie=TEST_LOGICIEL, resultat_obtenu=norm, exige_resultat_none=True)
+            except Exception as _gmn_exception_42:
+                enregistrer_secours("Test ligne 806 ('C08 normaliser %r' % (entree,))", _gmn_exception_42, _gmn_longueur_avant_42)
+    except Exception as _gmn_exception_43:
+        enregistrer_secours("Test ligne 806 ('C08 normaliser %r' % (entree,))", _gmn_exception_43, _gmn_longueur_avant_43)
+    _gmn_longueur_avant_44 = len(resultats)
+    try:
+        sn_r, norm_r, v0_r, rn_r, dn_r = normaliser_residuel([-8, -12])
+        ajouter('REGRESSION V5.5.6.9 C08 [-8,-12] v0=2 norme=[-2,-3] reconstruction OK signe conserve', OK if sn_r == OK and v0_r == 2 and (norm_r == [-2, -3]) and ([x * 2 ** v0_r for x in norm_r] == [-8, -12]) and any((x % 2 == 1 for x in norm_r)) else ECHEC, 'v0=%s norm=%s' % (v0_r, norm_r), obligatoire=True, raison=rn_r, detecteur=dn_r, categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_44:
+        enregistrer_secours('REGRESSION V5.5.6.9 C08 [-8,-12] v0=2 norme=[-2,-3] reconstruction OK signe conserve', _gmn_exception_44, _gmn_longueur_avant_44)
+    _gmn_longueur_avant_45 = len(resultats)
+    try:
+        st_sp, rs_sp, ds_sp = valider_structure_polynome([1, 1], 'phi1')
+        ajouter('valider_structure_polynome phi1 valide', OK if st_sp == OK else ECHEC, rs_sp, obligatoire=True, raison=rs_sp, detecteur=ds_sp, categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_45:
+        enregistrer_secours('valider_structure_polynome phi1 valide', _gmn_exception_45, _gmn_longueur_avant_45)
+    _gmn_longueur_avant_46 = len(resultats)
+    try:
+        st_sp, rs_sp, ds_sp = valider_structure_polynome([1, 2], 'phi non monique')
+        ajouter('valider_structure_polynome non monique -> ECHEC', OK if st_sp == ECHEC and ds_sp == 'structure monicite' else ECHEC, rs_sp, obligatoire=True, raison=rs_sp, detecteur=ds_sp, categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_46:
+        enregistrer_secours('valider_structure_polynome non monique -> ECHEC', _gmn_exception_46, _gmn_longueur_avant_46)
+    _gmn_longueur_avant_47 = len(resultats)
+    try:
+        st_sp, rs_sp, ds_sp = valider_structure_polynome([2, 1], 'phi [2,1] monique')
+        ajouter('REGRESSION V5.5.6.9 [2,1] est monique -> OK, distinction constant/dominant', OK if st_sp == OK else ECHEC, rs_sp, obligatoire=True, raison=rs_sp, detecteur=ds_sp, categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_47:
+        enregistrer_secours('REGRESSION V5.5.6.9 [2,1] est monique -> OK, distinction constant/dominant', _gmn_exception_47, _gmn_longueur_avant_47)
+    _gmn_longueur_avant_48 = len(resultats)
+    try:
+        st_sp, rs_sp, ds_sp = valider_structure_polynome(None, 'phi manquant')
+        ajouter('valider_structure_polynome None -> NON_DET', OK if st_sp == NON_DET else ECHEC, rs_sp, obligatoire=True, raison=rs_sp, detecteur=ds_sp, categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_48:
+        enregistrer_secours('valider_structure_polynome None -> NON_DET', _gmn_exception_48, _gmn_longueur_avant_48)
+    _gmn_longueur_avant_49 = len(resultats)
+    try:
+        sr_r, segs_r, scr_r, rr_r, rcr_r, dr_r = residuel_ordre1_strict([1, 1], [17, 1])
+        ajouter('REGRESSION V5.5.6.9 residuel Fraction gcd : OK segs pente -4 residuel 0b11, pas de TypeError', OK if sr_r == OK and segs_r is not None and (len(segs_r) == 1) and (segs_r[0][2] == Fraction(-4)) and (segs_r[0][3] == 3) else ECHEC, 'segs=%s' % segs_r, obligatoire=True, raison=rr_r, detecteur=dr_r, categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_49:
+        enregistrer_secours('REGRESSION V5.5.6.9 residuel Fraction gcd : OK segs pente -4 residuel 0b11, pas de TypeError', _gmn_exception_49, _gmn_longueur_avant_49)
+    _gmn_longueur_avant_50 = len(resultats)
+    try:
+        preuve_complete = {'type': 'preuve_locale_verifiee', 'verifiee': True}
+        st_v, _, raison_v, det_v = valider_v2_gmn([4, 8], preuve_complete, 'anneau local')
+        ajouter('Certification locale v2 dict fabrique -> NON_DET', OK if st_v == NON_DET else ECHEC, raison_v, obligatoire=True, raison=raison_v, detecteur=det_v, categorie=NON_DET)
+    except Exception as _gmn_exception_50:
+        enregistrer_secours('Certification locale v2 dict fabrique -> NON_DET', _gmn_exception_50, _gmn_longueur_avant_50)
+    _gmn_longueur_avant_51 = len(resultats)
+    try:
+        st_s, rs, ds = valider_structure_bj_list([[1], [1]])
+        ajouter('C10 structure b_j valide', OK if st_s == OK else ECHEC, rs, obligatoire=True, raison=rs, detecteur=ds, categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_51:
+        enregistrer_secours('C10 structure b_j valide', _gmn_exception_51, _gmn_longueur_avant_51)
+    _gmn_longueur_avant_52 = len(resultats)
+    try:
+        st_s, rs, ds = valider_structure_bj_list([[1], [True]])
+        test_negatif('C10 structure b_j bool', '[True]', 'structure_bj', ECHEC, st_s, rs, ds, 'structure_bj', categorie=TEST_LOGICIEL, resultat_obtenu=None, exige_resultat_none=None)
+    except Exception as _gmn_exception_52:
+        enregistrer_secours('C10 structure b_j bool', _gmn_exception_52, _gmn_longueur_avant_52)
+    _gmn_longueur_avant_53 = len(resultats)
+    try:
+        st_t, rt, dt = valider_types_uj_list([Fraction(4), Fraction(4)])
+        ajouter('C10 types u_j valides', OK if st_t == OK else ECHEC, rt, obligatoire=True, raison=rt, detecteur=dt, categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_53:
+        enregistrer_secours('C10 types u_j valides', _gmn_exception_53, _gmn_longueur_avant_53)
+    _gmn_longueur_avant_55 = len(resultats)
+    try:
+        for val_uj, nom_uj in [(True, 'True'), (False, 'False'), (4.0, '4.0'), ('4', "'4'"), ([4], '[4]')]:
+            _gmn_longueur_avant_54 = len(resultats)
+            try:
+                st_t, rt, dt = valider_types_uj_list([val_uj, Fraction(4)])
+                ajouter('C10 types u_j %s' % nom_uj, OK if st_t == ECHEC and dt == 'types_uj type' else ECHEC, rt, obligatoire=True, raison=rt, detecteur=dt, categorie=TEST_LOGICIEL)
+            except Exception as _gmn_exception_54:
+                enregistrer_secours("Test ligne 819 ('C10 types u_j %s' % nom_uj)", _gmn_exception_54, _gmn_longueur_avant_54)
+    except Exception as _gmn_exception_55:
+        enregistrer_secours("Test ligne 819 ('C10 types u_j %s' % nom_uj)", _gmn_exception_55, _gmn_longueur_avant_55)
+    _gmn_longueur_avant_56 = len(resultats)
+    try:
+        st_ord, ro, do = valider_ordonnees_gmn([[1], [1]], [-15, 1], [Fraction(4), Fraction(4)], preuve_complete, 'anneau local', preuve_complete)
+        ajouter('C10 ordonnees dict fabrique -> NON_DET', OK if st_ord == NON_DET else ECHEC, ro, obligatoire=True, raison=ro, detecteur=do, categorie=NON_DET)
+    except Exception as _gmn_exception_56:
+        enregistrer_secours('C10 ordonnees dict fabrique -> NON_DET', _gmn_exception_56, _gmn_longueur_avant_56)
+    _gmn_longueur_avant_57 = len(resultats)
+    try:
+        st_ord, ro, do = valider_ordonnees_gmn([[1], [1]], [-15, 1], [True, Fraction(4)], preuve_complete, 'anneau local', preuve_complete)
+        ajouter('C10 ordonnees u_j True -> ECHEC avant verrou', OK if st_ord == ECHEC and 'TYPES' in ro else ECHEC, ro, obligatoire=True, raison=ro, detecteur=do, categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_57:
+        enregistrer_secours('C10 ordonnees u_j True -> ECHEC avant verrou', _gmn_exception_57, _gmn_longueur_avant_57)
+    _gmn_longueur_avant_58 = len(resultats)
+    try:
+        base_c11 = {'phi1': [1, 1], 'lambda1': Fraction(4, 1), 'psi1': 3, 'phi2': [17, 1], 'exigee': True, 'documentee': True, 'preuve_locale': preuve_complete}
+        diff_f = [base_c11['phi2'][i] - (base_c11['phi1'][i] if i < len(base_c11['phi1']) else 0) for i in range(2)]
+        sv_f, v2_f, _, _ = v2_int_strict(diff_f[0])
+        se_f, exp_f, _, _ = expansion_phi_adique_strict(base_c11['phi2'], base_c11['phi1'])
+        sr_f, segs_f, _, _, _, _ = residuel_ordre1_strict(base_c11['phi1'], base_c11['phi2'])
+        diff_stripped = list(diff_f)
+    except Exception as _gmn_exception_58:
+        enregistrer_secours('Preparation de la fixture C11 residuel', _gmn_exception_58, _gmn_longueur_avant_58)
+    _gmn_longueur_avant_60 = len(resultats)
+    try:
+        while len(diff_stripped) > 1 and diff_stripped[-1] == 0:
+            _gmn_longueur_avant_59 = len(resultats)
+            try:
+                diff_stripped.pop()
+            except Exception as _gmn_exception_59:
+                enregistrer_secours('Reduction de la fixture C11 residuel', _gmn_exception_59, _gmn_longueur_avant_59)
+                break
+    except Exception as _gmn_exception_60:
+        enregistrer_secours('Boucle de reduction de la fixture C11 residuel', _gmn_exception_60, _gmn_longueur_avant_60)
+    _gmn_longueur_avant_61 = len(resultats)
+    try:
+        fixture_ok = diff_f == [16, 0] and diff_stripped == [16] and (sv_f == OK) and (v2_f == 4) and (se_f == OK) and (exp_f == [[16], [1]]) and (sr_f == OK) and (segs_f is not None) and (len(segs_f) == 1) and (segs_f[0][2] == Fraction(-4)) and (segs_f[0][3] == 3)
+        ajouter('C11 fixture valide verifiee avant verrou (diff=16,v2=4,exp=[[16],[1]],pente=-4,residuel=0b11)', OK if fixture_ok else ECHEC, 'diff=%s stripped=%s v2=%s exp=%s segs=%s' % (diff_f, diff_stripped, v2_f, exp_f, segs_f), obligatoire=True, raison='fixture B', detecteur='C11 fixture', categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_61:
+        enregistrer_secours('C11 fixture valide verifiee avant verrou (diff=16,v2=4,exp=[[16],[1]],pente=-4,residuel=0b11)', _gmn_exception_61, _gmn_longueur_avant_61)
+    _gmn_longueur_avant_62 = len(resultats)
+    try:
+        ajouter('REGRESSION V5.5.6.9 fixture diff depouille == [16], segs non None', OK if diff_stripped == [16] and segs_f is not None else ECHEC, 'stripped=%s segs=%s' % (diff_stripped, segs_f), obligatoire=True, raison='fixture representation', detecteur='C11 fixture', categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_62:
+        enregistrer_secours('REGRESSION V5.5.6.9 fixture diff depouille == [16], segs non None', _gmn_exception_62, _gmn_longueur_avant_62)
+    _gmn_longueur_avant_63 = len(resultats)
+    try:
+        verifier_c11('C11 1 lambda1 bool', dict(base_c11, lambda1=True), ECHEC, 'certifier_phi2 lambda1')
+    except Exception as _gmn_exception_63:
+        enregistrer_secours('C11 1 lambda1 bool', _gmn_exception_63, _gmn_longueur_avant_63)
+    _gmn_longueur_avant_64 = len(resultats)
+    try:
+        verifier_c11('C11 2 lambda1 float', dict(base_c11, lambda1=4.0), ECHEC, 'certifier_phi2 lambda1')
+    except Exception as _gmn_exception_64:
+        enregistrer_secours('C11 2 lambda1 float', _gmn_exception_64, _gmn_longueur_avant_64)
+    _gmn_longueur_avant_65 = len(resultats)
+    try:
+        verifier_c11('C11 3 lambda1 chaine', dict(base_c11, lambda1='4'), ECHEC, 'certifier_phi2 lambda1')
+    except Exception as _gmn_exception_65:
+        enregistrer_secours('C11 3 lambda1 chaine', _gmn_exception_65, _gmn_longueur_avant_65)
+    _gmn_longueur_avant_66 = len(resultats)
+    try:
+        verifier_c11('C11 4 denominateur nul', dict(base_c11, lambda1=(4, 0)), ECHEC, 'certifier_phi2 lambda1 denominateur')
+    except Exception as _gmn_exception_66:
+        enregistrer_secours('C11 4 denominateur nul', _gmn_exception_66, _gmn_longueur_avant_66)
+    _gmn_longueur_avant_67 = len(resultats)
+    try:
+        verifier_c11('C11 5 denominateur mal type', dict(base_c11, lambda1=(4, '2')), ECHEC, 'certifier_phi2 lambda1 denominateur')
+    except Exception as _gmn_exception_67:
+        enregistrer_secours('C11 5 denominateur mal type', _gmn_exception_67, _gmn_longueur_avant_67)
+    _gmn_longueur_avant_68 = len(resultats)
+    try:
+        verifier_c11('C11 6 phi1 non monique', dict(base_c11, phi1=[1, 2]), ECHEC, 'certifier_phi2 phi1 monicite')
+    except Exception as _gmn_exception_68:
+        enregistrer_secours('C11 6 phi1 non monique', _gmn_exception_68, _gmn_longueur_avant_68)
+    _gmn_longueur_avant_69 = len(resultats)
+    try:
+        verifier_c11('C11 7 phi2 non monique', dict(base_c11, phi2=[1, 2]), ECHEC, 'certifier_phi2 phi2 monicite')
+    except Exception as _gmn_exception_69:
+        enregistrer_secours('C11 7 phi2 non monique', _gmn_exception_69, _gmn_longueur_avant_69)
+    _gmn_longueur_avant_70 = len(resultats)
+    try:
+        verifier_c11('C11 8 degre phi1 incorrect', dict(base_c11, phi1=[1, 1, 1]), ECHEC, 'certifier_phi2 phi1 degre')
+    except Exception as _gmn_exception_70:
+        enregistrer_secours('C11 8 degre phi1 incorrect', _gmn_exception_70, _gmn_longueur_avant_70)
+    _gmn_longueur_avant_71 = len(resultats)
+    try:
+        verifier_c11('C11 9 degre phi2 incorrect', dict(base_c11, phi2=[1, 1, 1]), ECHEC, 'certifier_phi2 phi2 degre')
+    except Exception as _gmn_exception_71:
+        enregistrer_secours('C11 9 degre phi2 incorrect', _gmn_exception_71, _gmn_longueur_avant_71)
+    _gmn_longueur_avant_72 = len(resultats)
+    try:
+        verifier_c11('C11 10 relation degres incorrecte', dict(base_c11, psi1=7, phi2=[17, 1]), ECHEC, 'certifier_phi2 degres relation')
+    except Exception as _gmn_exception_72:
+        enregistrer_secours('C11 10 relation degres incorrecte', _gmn_exception_72, _gmn_longueur_avant_72)
+    _gmn_longueur_avant_73 = len(resultats)
+    try:
+        verifier_c11('C11 11 psi1 mal type', dict(base_c11, psi1=True), ECHEC, 'certifier_phi2 psi1')
+    except Exception as _gmn_exception_73:
+        enregistrer_secours('C11 11 psi1 mal type', _gmn_exception_73, _gmn_longueur_avant_73)
+    _gmn_longueur_avant_74 = len(resultats)
+    try:
+        verifier_c11('C11 12 difference phi2-phi1 incorrecte', dict(base_c11, phi2=[1, 1]), ECHEC, 'certifier_phi2 difference')
+    except Exception as _gmn_exception_74:
+        enregistrer_secours('C11 12 difference phi2-phi1 incorrecte', _gmn_exception_74, _gmn_longueur_avant_74)
+    _gmn_longueur_avant_75 = len(resultats)
+    try:
+        verifier_c11('C11 13 pente float', dict(base_c11, pente_fournie=4.0), ECHEC, 'certifier_phi2 pente')
+    except Exception as _gmn_exception_75:
+        enregistrer_secours('C11 13 pente float', _gmn_exception_75, _gmn_longueur_avant_75)
+    _gmn_longueur_avant_76 = len(resultats)
+    try:
+        verifier_c11('C11 14 residuel bool', dict(base_c11, residuel_fourni=True), ECHEC, 'certifier_phi2 residuel')
+    except Exception as _gmn_exception_76:
+        enregistrer_secours('C11 14 residuel bool', _gmn_exception_76, _gmn_longueur_avant_76)
+    _gmn_longueur_avant_77 = len(resultats)
+    try:
+        verifier_c11('C11 15 residuel float', dict(base_c11, residuel_fourni=1.5), ECHEC, 'certifier_phi2 residuel')
+    except Exception as _gmn_exception_77:
+        enregistrer_secours('C11 15 residuel float', _gmn_exception_77, _gmn_longueur_avant_77)
+    _gmn_longueur_avant_78 = len(resultats)
+    try:
+        verifier_c11('C11 16 invariant incorrect', dict(base_c11, invariant_fourni=False), ECHEC, 'certifier_phi2 invariant')
+    except Exception as _gmn_exception_78:
+        enregistrer_secours('C11 16 invariant incorrect', _gmn_exception_78, _gmn_longueur_avant_78)
+    _gmn_longueur_avant_79 = len(resultats)
+    try:
+        verifier_c11('C11 17 entree absente', dict(base_c11, phi1=None), ECHEC, 'certifier_phi2 absence')
+    except Exception as _gmn_exception_79:
+        enregistrer_secours('C11 17 entree absente', _gmn_exception_79, _gmn_longueur_avant_79)
+    _gmn_longueur_avant_80 = len(resultats)
+    try:
+        verifier_c11('C11 18 structure valide + verrou ferme -> NON_DET exact', dict(base_c11), NON_DET, 'certifier_phi2 calcul_local_manquant')
+    except Exception as _gmn_exception_80:
+        enregistrer_secours('C11 18 structure valide + verrou ferme -> NON_DET exact', _gmn_exception_80, _gmn_longueur_avant_80)
+    _gmn_longueur_avant_81 = len(resultats)
+    try:
+        verifier_c11('C11 exigee=True accepte -> NON_DET verrou', dict(base_c11, exigee=True), NON_DET, 'certifier_phi2 calcul_local_manquant')
+    except Exception as _gmn_exception_81:
+        enregistrer_secours('C11 exigee=True accepte -> NON_DET verrou', _gmn_exception_81, _gmn_longueur_avant_81)
+    _gmn_longueur_avant_82 = len(resultats)
+    try:
+        verifier_c11('C11 exigee=False defini -> NON_DET verrou', dict(base_c11, exigee=False), NON_DET, 'certifier_phi2 calcul_local_manquant')
+    except Exception as _gmn_exception_82:
+        enregistrer_secours('C11 exigee=False defini -> NON_DET verrou', _gmn_exception_82, _gmn_longueur_avant_82)
+    _gmn_longueur_avant_83 = len(resultats)
+    try:
+        verifier_c11('C11 exigee=1 -> ECHEC', dict(base_c11, exigee=1), ECHEC, 'certifier_phi2 exigee')
+    except Exception as _gmn_exception_83:
+        enregistrer_secours('C11 exigee=1 -> ECHEC', _gmn_exception_83, _gmn_longueur_avant_83)
+    _gmn_longueur_avant_84 = len(resultats)
+    try:
+        verifier_c11('C11 exigee=0 -> ECHEC', dict(base_c11, exigee=0), ECHEC, 'certifier_phi2 exigee')
+    except Exception as _gmn_exception_84:
+        enregistrer_secours('C11 exigee=0 -> ECHEC', _gmn_exception_84, _gmn_longueur_avant_84)
+    _gmn_longueur_avant_85 = len(resultats)
+    try:
+        verifier_c11('C11 exigee=None -> ECHEC', dict(base_c11, exigee=None), ECHEC, 'certifier_phi2 exigee')
+    except Exception as _gmn_exception_85:
+        enregistrer_secours('C11 exigee=None -> ECHEC', _gmn_exception_85, _gmn_longueur_avant_85)
+    _gmn_longueur_avant_86 = len(resultats)
+    try:
+        verifier_c11("C11 exigee='True' -> ECHEC", dict(base_c11, exigee='True'), ECHEC, 'certifier_phi2 exigee')
+    except Exception as _gmn_exception_86:
+        enregistrer_secours("C11 exigee='True' -> ECHEC", _gmn_exception_86, _gmn_longueur_avant_86)
+    _gmn_longueur_avant_87 = len(resultats)
+    try:
+        verifier_c11('C11 exigee=[] -> ECHEC', dict(base_c11, exigee=[]), ECHEC, 'certifier_phi2 exigee')
+    except Exception as _gmn_exception_87:
+        enregistrer_secours('C11 exigee=[] -> ECHEC', _gmn_exception_87, _gmn_longueur_avant_87)
+    _gmn_longueur_avant_88 = len(resultats)
+    try:
+        branche_b1 = {'degre': 1, 'pente': Fraction(-4, 1), 'multiplicite': 1, 'residuel': 3, 'hypotheses': True}
+        branches_valides = {'b1': branche_b1}
+        perimetre_ok = {'couverture_demonteree': True, 'identifiants_branches_attendus': ['b1']}
+        perimetre_ok_hist = {'couverture_demonteree': True, 'branches_attendues': 1, 'identifiants_branches_attendus': ['b1']}
+        si, ri, di = valider_identites_branches(perimetre_ok, branches_valides)
+        ajouter('C09 1 perimetre canonique valide', OK if si == OK else ECHEC, ri, obligatoire=True, raison=ri, detecteur=di, categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_88:
+        enregistrer_secours('C09 1 perimetre canonique valide', _gmn_exception_88, _gmn_longueur_avant_88)
+    _gmn_longueur_avant_89 = len(resultats)
+    try:
+        si, ri, di = valider_identites_branches(perimetre_ok_hist, branches_valides)
+        ajouter('C09 1b historique coherent avec derive', OK if si == OK else ECHEC, ri, obligatoire=True, raison=ri, detecteur=di, categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_89:
+        enregistrer_secours('C09 1b historique coherent avec derive', _gmn_exception_89, _gmn_longueur_avant_89)
+    _gmn_longueur_avant_91 = len(resultats)
+    try:
+        for nom, per, br, att_det in [('C09 2 identifiant vide', {'identifiants_branches_attendus': ['']}, branches_valides, 'identites vide'), ('C09 3 identifiant espaces', {'identifiants_branches_attendus': ['   ']}, branches_valides, 'identites espaces'), ('C09 4 identifiant bool', {'identifiants_branches_attendus': [True]}, branches_valides, 'identites type'), ('C09 5 identifiant entier', {'identifiants_branches_attendus': [1]}, branches_valides, 'identites type'), ('C09 6 identifiant duplique', {'identifiants_branches_attendus': ['b1', 'b1']}, branches_valides, 'identites duplique'), ('C09 7 collection None', {'identifiants_branches_attendus': None}, branches_valides, 'identites collection None'), ('C09 8 collection chaine', {'identifiants_branches_attendus': 'b1'}, branches_valides, 'identites collection chaine'), ('C09 9 collection vide', {'identifiants_branches_attendus': []}, branches_valides, 'identites collection vide'), ('C09 10 branche manquante', {'identifiants_branches_attendus': ['b1', 'b2']}, branches_valides, 'identites manquantes'), ('C09 11 branche supplementaire', perimetre_ok, {'b1': branche_b1, 'b2': branche_b1}, 'identites supplementaires'), ('C09 12 remplacement meme cardinalite', {'identifiants_branches_attendus': ['bX']}, branches_valides, 'identites manquantes'), ('C09 20 incoherence historique', {'branches_attendues': 2, 'identifiants_branches_attendus': ['b1']}, branches_valides, 'identites historique incoherence'), ('C09 identifiant non textuel', {'identifiants_branches_attendus': [1.5]}, branches_valides, 'identites type')]:
+            _gmn_longueur_avant_90 = len(resultats)
+            try:
+                si2, ri2, di2 = valider_identites_branches(per, br)
+                ajouter(nom, OK if si2 == ECHEC and di2 == att_det else ECHEC, 'statut=%s detecteur=%s' % (si2, di2), obligatoire=True, raison=ri2, detecteur=di2, categorie=TEST_LOGICIEL)
+            except Exception as _gmn_exception_90:
+                enregistrer_secours('Test ligne 858 (nom)', _gmn_exception_90, _gmn_longueur_avant_90)
+    except Exception as _gmn_exception_91:
+        enregistrer_secours('Test ligne 858 (nom)', _gmn_exception_91, _gmn_longueur_avant_91)
+    _gmn_longueur_avant_93 = len(resultats)
+    try:
+        for nom, br, att_det in [('C09 branche liste', {'b1': [1, 2]}, 'branches liste'), ('C09 branche chaine', {'b1': 'chaine'}, 'branches chaine'), ('C09 branche None', {'b1': None}, 'branches None'), ('C09 branche entier', {'b1': 1}, 'branches entier'), ('C09 branche booleen', {'b1': True}, 'branches booleen'), ('C09 dictionnaire incomplet', {'b1': {'degre': 1}}, 'branches champ absent'), ('C09 champ obligatoire absent', {'b1': {'degre': 1, 'pente': Fraction(-4, 1), 'multiplicite': 1, 'residuel': 3}}, 'branches champ absent'), ('C09 multiplicite bool', {'b1': dict(branche_b1, multiplicite=True)}, 'branches multiplicite'), ('C09 residuel bool', {'b1': dict(branche_b1, residuel=True)}, 'branches residuel'), ('C09 degre bool', {'b1': dict(branche_b1, degre=True)}, 'branches degre bool'), ('C09 degre float', {'b1': dict(branche_b1, degre=1.5)}, 'branches degre'), ('C09 pente float', {'b1': dict(branche_b1, pente=4.0)}, 'branches pente'), ('C09 hypotheses mauvais type', {'b1': dict(branche_b1, hypotheses=1)}, 'branches hypotheses type')]:
+            _gmn_longueur_avant_92 = len(resultats)
+            try:
+                st_b, _, rb, db = verifier_branches_completes(br, perimetre_ok, True)
+                ajouter(nom, OK if st_b == ECHEC and db == att_det else ECHEC, rb, obligatoire=True, raison=rb, detecteur=db, categorie=TEST_LOGICIEL)
+            except Exception as _gmn_exception_92:
+                enregistrer_secours('Test ligne 860 (nom)', _gmn_exception_92, _gmn_longueur_avant_92)
+    except Exception as _gmn_exception_93:
+        enregistrer_secours('Test ligne 860 (nom)', _gmn_exception_93, _gmn_longueur_avant_93)
+    _gmn_longueur_avant_94 = len(resultats)
+    try:
+        st_b, _, rb, db = verifier_branches_completes(branches_valides, perimetre_ok, True)
+        ajouter('C09 couverture True sans demonstration -> NON_DET', OK if st_b == NON_DET and db == 'branches verrou' else ECHEC, rb, obligatoire=True, raison=rb, detecteur=db, categorie=NON_DET)
+    except Exception as _gmn_exception_94:
+        enregistrer_secours('C09 couverture True sans demonstration -> NON_DET', _gmn_exception_94, _gmn_longueur_avant_94)
+    _gmn_longueur_avant_95 = len(resultats)
+    try:
+        st_c, t1_val, st_cert, rc, rcert, dt_t = valider_t1(4, 0, Fraction(4), 1, 4, True, True, True, 'branche fixture')
+        ajouter('t1 calcul exact OK, certification NON_DET', OK if st_c == OK and t1_val == Fraction(4) and (st_cert == NON_DET) else ECHEC, 't1=%s' % t1_val, obligatoire=True, raison=rcert, detecteur=dt_t, categorie=CONDITIONNEL)
+    except Exception as _gmn_exception_95:
+        enregistrer_secours('t1 calcul exact OK, certification NON_DET', _gmn_exception_95, _gmn_longueur_avant_95)
+    _gmn_longueur_avant_96 = len(resultats)
+    try:
+        st_f, v1_val, st_cert, rf, rc, dv1 = v1_poly_strict([1, 1], [1, 1], Fraction(4, 1))
+        ajouter('v1 CALCUL_FORMEL_OK, CERTIFICATION_GMN NON_DET', OK if st_f == OK and st_cert == NON_DET else ECHEC, 'v1=%s' % v1_val, obligatoire=True, raison=rc, detecteur=dv1, categorie=CONDITIONNEL)
+    except Exception as _gmn_exception_96:
+        enregistrer_secours('v1 CALCUL_FORMEL_OK, CERTIFICATION_GMN NON_DET', _gmn_exception_96, _gmn_longueur_avant_96)
+    _gmn_longueur_avant_97 = len(resultats)
+    try:
+        st_f, P, t0, e1_v, v1_v, st_cert, rf, rc, dr = red1_poly_strict([1, 1], [1, 1], Fraction(4, 1))
+        ajouter('red1 CALCUL_FORMEL_OK, CERTIFICATION_GMN NON_DET', OK if st_f == OK and st_cert == NON_DET else ECHEC, 'P=%s' % P, obligatoire=True, raison=rc, detecteur=dr, categorie=CONDITIONNEL)
+    except Exception as _gmn_exception_97:
+        enregistrer_secours('red1 CALCUL_FORMEL_OK, CERTIFICATION_GMN NON_DET', _gmn_exception_97, _gmn_longueur_avant_97)
+    _gmn_longueur_avant_98 = len(resultats)
+    try:
+        st_f, segs, st_cert, rf, rc, dres = residuel_ordre1_strict([1, 1], [1, 1])
+        ajouter('residuel CALCUL_FORMEL_OK (CANDIDAT_GMN), CERTIFICATION_GMN NON_DET', OK if st_f == OK and st_cert == NON_DET else ECHEC, 'segs=%s' % segs, obligatoire=True, raison=rc, detecteur=dres, categorie=CONDITIONNEL)
+    except Exception as _gmn_exception_98:
+        enregistrer_secours('residuel CALCUL_FORMEL_OK (CANDIDAT_GMN), CERTIFICATION_GMN NON_DET', _gmn_exception_98, _gmn_longueur_avant_98)
+    _gmn_longueur_avant_99 = len(resultats)
+    try:
+        st_a, u, st_g, ra, rg, du = calculer_u_j_arithmetique(4, 1, 4, 'entree arithmetique', 'entree arithmetique')
+        test_valeur('u_j arithmetique 4+1*4=8', OK, st_a, Fraction(8), u, 'calculer_u_j', du, categorie=CALCULE)
+    except Exception as _gmn_exception_99:
+        enregistrer_secours('u_j arithmetique 4+1*4=8', _gmn_exception_99, _gmn_longueur_avant_99)
+    _gmn_longueur_avant_100 = len(resultats)
+    try:
+        ajouter('u_j interpretation GMN NON_DET', OK if st_g == NON_DET else ECHEC, rg, obligatoire=True, raison=rg, detecteur=du, categorie=CONDITIONNEL)
+    except Exception as _gmn_exception_100:
+        enregistrer_secours('u_j interpretation GMN NON_DET', _gmn_exception_100, _gmn_longueur_avant_100)
+    _gmn_longueur_avant_101 = len(resultats)
+    try:
+        st_impl, ro_impl, do_impl = signaler_impasse_ordre2(None, None, None, None, False)
+        st_o, ro, do = audit_ordre2(None, None, None, None, False)
+        ajouter('Ordre 2 donnees manquantes -> NON_DET', st_o if (st_o, ro, do) == (st_impl, ro_impl, do_impl) else ECHEC, 'implementation=%r compatibilite=%r' % ((st_impl, ro_impl, do_impl), (st_o, ro, do)), obligatoire=True, raison=ro, detecteur=do, categorie=NON_DET)
+    except Exception as _gmn_exception_101:
+        enregistrer_secours('Ordre 2 donnees manquantes -> NON_DET', _gmn_exception_101, _gmn_longueur_avant_101)
+    _gmn_longueur_avant_102 = len(resultats)
+    try:
+        cas_parseur = []
+        cas_parseur.append(('Parser fichier absent', None, NON_DET, None, 'parser absence'))
+        cas_parseur.append(('Parser entree vide', '', ECHEC, None, 'parser manquant'))
+        cas_parseur.append(('Parser commentaire historique', '# commentaire\n' + '\n'.join(['c_%d=0' % i for i in range(40)]), OK, [0] * 40, 'parser'))
+        cas_parseur.append(('Parser en-tete valide', 'HEADER: test\n' + '\n'.join(['c_%d=0' % i for i in range(40)]), OK, [0] * 40, 'parser'))
+        cas_parseur.append(('Parser ligne H=', 'H=1\n', NON_DET, None, 'parser H='))
+        cas_parseur.append(('Parser 40 coefficients valides', '\n'.join(['c_%d=%d' % (i, i) for i in range(40)]), OK, list(range(40)), 'parser'))
+        cas_parseur.append(('Parser coefficient duplique', '\n'.join(['c_0=1', 'c_0=2'] + ['c_%d=0' % i for i in range(1, 40)]), ECHEC, None, 'parser duplique'))
+        cas_parseur.append(('Parser coefficient hors plage', '\n'.join(['c_%d=0' % i for i in range(40)] + ['c_40=1']), ECHEC, None, 'parser hors plage'))
+        cas_parseur.append(('Parser coefficient mal forme', '\n'.join(['c_0=abc'] + ['c_%d=0' % i for i in range(1, 40)]), ECHEC, None, 'parser malforme'))
+        cas_parseur.append(('Parser cle inconnue', '\n'.join(['c_%d=0' % i for i in range(40)] + ['FOO=1']), ECHEC, None, 'parser inconnue'))
+        cas_parseur.append(('Parser coefficient manquant', '\n'.join(['c_%d=0' % i for i in range(39)]), ECHEC, None, 'parser manquant'))
+        cas_parseur.append(('Parser fichier valide complet', '\n'.join(['c_%d=%d' % (i, -i) for i in range(40)]), OK, [-i for i in range(40)], 'parser'))
+        cas_parseur.append(('Parser resultat None attendu', 'H=1\n', NON_DET, None, 'parser H='))
+        cas_parseur.append(('Parser resultat non-None attendu', '\n'.join(['c_%d=0' % i for i in range(40)]), OK, [0] * 40, 'parser'))
+    except Exception as _gmn_exception_102:
+        enregistrer_secours('Preparation des cas parseur C13', _gmn_exception_102, _gmn_longueur_avant_102)
+    # Chaque cas du parseur est un test independant : une exception ne
+    # peut ni reutiliser les variables du cas precedent ni creer un second test.
+    for nom, entree, att_st, att_res, att_det in cas_parseur:
+        _gmn_longueur_avant_parseur = len(resultats)
+        try:
+            st_p, coeffs_p, raison_p, det_p = parser_strict_fichier_T(entree)
+            ok_res = (coeffs_p is None) if att_res is None else (coeffs_p == att_res)
+            ok_test = (st_p == att_st and det_p == att_det and ok_res and len(str(raison_p)) > 0)
+            print('[V5.5.6.15] TEST PARSEUR %s | %s' % (nom, 'PASS' if ok_test else 'FAIL'))
+            ajouter(nom, OK if ok_test else ECHEC,
+                    'statut=%s det=%s resultat_is_None=%s' % (st_p, det_p, coeffs_p is None),
+                    obligatoire=True, raison=raison_p, detecteur=det_p, categorie=TEST_LOGICIEL)
+        except Exception as _gmn_exception_parseur:
+            enregistrer_secours(nom, _gmn_exception_parseur, _gmn_longueur_avant_parseur)
+    # Les huit tests C13 sont independants et proteges individuellement.
+    cas_c13 = [
+        ('C13 injection None attendu + [0]', None, [0], False),
+        ('C13 injection None attendu + liste', None, [1, 2], False),
+        ('C13 injection None attendu + entier', None, 5, False),
+        ('C13 injection None attendu + chaine', None, 'x', False),
+        ('C13 injection liste attendue + None', [0], None, False),
+        ('C13 injection liste attendue + liste differente', [0], [1], False),
+        ('C13 controle None attendu + None', None, None, True),
+        ('C13 controle liste attendue + egale', [1], [1], True),
+    ]
+    for nom, att, obt, att_bool in cas_c13:
+        _gmn_longueur_avant_c13 = len(resultats)
+        try:
+            valeur_verifiee = verifier_resultat_parseur(att, obt)
+            ok_inj = valeur_verifiee is att_bool
+            ajouter(nom, OK if ok_inj else ECHEC,
+                    'verifier_resultat_parseur=%s attendu=%s' % (valeur_verifiee, att_bool),
+                    obligatoire=True, raison='None strict', detecteur='verifier_resultat_parseur',
+                    categorie=TEST_LOGICIEL)
+        except Exception as _gmn_exception_c13:
+            enregistrer_secours(nom, _gmn_exception_c13, _gmn_longueur_avant_c13)
+    _gmn_longueur_avant_111 = len(resultats)
+    try:
+        st_conv, det_conv = verifier_convention_historique()
+        ajouter('C12 convention historique SHA -> NON_DET', st_conv, det_conv, obligatoire=True, raison=det_conv, detecteur='verifier_convention_historique', categorie=NON_DET)
+    except Exception as _gmn_exception_111:
+        enregistrer_secours('C12 convention historique SHA -> NON_DET', _gmn_exception_111, _gmn_longueur_avant_111)
+    _gmn_longueur_avant_112 = len(resultats)
+    try:
+        coeffs_test = [0] * 39 + [1]
+        ser_test = '\n'.join((str(coeffs_test[i]) for i in range(39, -1, -1))) + '\n'
+        sha_test = hashlib.sha256(ser_test.encode('utf-8')).hexdigest()
+        st_auth, raison_auth, det_auth = valider_authenticite_T(coeffs_test, sha_test)
+        ajouter('C12 authenticite historique -> NON_DET meme avec bon SHA', OK if st_auth == NON_DET else ECHEC, raison_auth, obligatoire=True, raison=raison_auth, detecteur=det_auth, categorie=NON_DET)
+    except Exception as _gmn_exception_112:
+        enregistrer_secours('C12 authenticite historique -> NON_DET meme avec bon SHA', _gmn_exception_112, _gmn_longueur_avant_112)
+    _gmn_longueur_avant_113 = len(resultats)
+    try:
+        st_sha, raison_sha, det_sha = valider_sha_avec_convention_test(coeffs_test, sha_test, 'test-canonique')
+        ajouter("C12 SHA convention de test -> OK, distinct de l'historique", OK if st_sha == OK else ECHEC, raison_sha, obligatoire=True, raison=raison_sha, detecteur=det_sha, categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_113:
+        enregistrer_secours("C12 SHA convention de test -> OK, distinct de l'historique", _gmn_exception_113, _gmn_longueur_avant_113)
+    _gmn_longueur_avant_114 = len(resultats)
+    try:
+        ajouter('authenticite_historique', NON_DET, 'authenticite_historique = NON_DET', obligatoire=True, raison='convention non demontree', detecteur='verifier_convention_historique', categorie=NON_DET)
+    except Exception as _gmn_exception_114:
+        enregistrer_secours('authenticite_historique', _gmn_exception_114, _gmn_longueur_avant_114)
+    _gmn_longueur_avant_115 = len(resultats)
+    try:
+        ajouter('Certification locale GMN', NON_DET, 'CERTIFICATION LOCALE = NON_DET', obligatoire=True, raison='calcul local manquant', detecteur='valider_v2_gmn', categorie=NON_DET)
+    except Exception as _gmn_exception_115:
+        enregistrer_secours('Certification locale GMN', _gmn_exception_115, _gmn_longueur_avant_115)
+    _gmn_longueur_avant_116 = len(resultats)
+    try:
+        ajouter('Exhaustivite des branches', NON_DET, 'EXHAUSTIVITE = NON_DET', obligatoire=True, raison='enumeration manquante', detecteur='verifier_branches_completes', categorie=NON_DET)
+    except Exception as _gmn_exception_116:
+        enregistrer_secours('Exhaustivite des branches', _gmn_exception_116, _gmn_longueur_avant_116)
+    _gmn_longueur_avant_117 = len(resultats)
+    try:
+        ajouter('Indice local en 2', NON_DET, 'INDICE LOCAL EN 2 : NON CALCULE', obligatoire=True, raison='calcul non effectue', detecteur='indice local', categorie=OUVERT)
+    except Exception as _gmn_exception_117:
+        enregistrer_secours('Indice local en 2', _gmn_exception_117, _gmn_longueur_avant_117)
+    _gmn_longueur_avant_118 = len(resultats)
+    try:
+        ajouter('Maximalite de Z[beta]', NON_DET, 'MAXIMALITE : NON DEMONTREE', obligatoire=True, raison='demonstration manquante', detecteur='maximalite', categorie=OUVERT)
+    except Exception as _gmn_exception_118:
+        enregistrer_secours('Maximalite de Z[beta]', _gmn_exception_118, _gmn_longueur_avant_118)
+    _gmn_longueur_avant_119 = len(resultats)
+    try:
+        ajouter('Egalite Z[beta]=O_K', NON_DET, 'EGALITE : NON DEMONTREE', obligatoire=True, raison='demonstration manquante', detecteur='egalite ordre', categorie=OUVERT)
+    except Exception as _gmn_exception_119:
+        enregistrer_secours('Egalite Z[beta]=O_K', _gmn_exception_119, _gmn_longueur_avant_119)
+    _gmn_longueur_avant_120 = len(resultats)
+    try:
+        st_e, hull_e, raison_e, det_e = _unpack_enveloppe_4(calculer_enveloppe_inf([(0, Fraction(4)), (1, Fraction(2)), (2, Fraction(0))]), 'main regression')
+        ajouter('Regression enveloppe colineaires', OK if st_e == OK and hull_e == [(0, Fraction(4)), (2, Fraction(0))] else ECHEC, 'hull=%s' % (hull_e,), obligatoire=True, raison=raison_e, detecteur=det_e, categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_120:
+        enregistrer_secours('Regression enveloppe colineaires', _gmn_exception_120, _gmn_longueur_avant_120)
+    _gmn_longueur_avant_121 = len(resultats)
+    try:
+        st_pa, res_pa, raison_pa, det_pa = poly_add([1, 0, 0], [2])
+        ajouter('Regression poly_add [1,0,0]+[2]=[3]', OK if st_pa == OK and res_pa == [3] and (det_pa == 'poly_add') else ECHEC, 'res=%s' % (res_pa,), obligatoire=True, raison=raison_pa, detecteur=det_pa, categorie=TEST_LOGICIEL)
+    except Exception as _gmn_exception_121:
+        enregistrer_secours('Regression poly_add [1,0,0]+[2]=[3]', _gmn_exception_121, _gmn_longueur_avant_121)
+    _gmn_longueur_avant_122 = len(resultats)
+    try:
+        fin = datetime.datetime.now()
+    except Exception as _gmn_exception_122:
+        enregistrer_secours('Preparation du rapport', _gmn_exception_122, _gmn_longueur_avant_122)
+    n_tests = len(resultats)
+    n_pass = len([r for r in resultats if r.statut == OK])
+    n_fail = len([r for r in resultats if r.statut == ECHEC])
+    n_non_det = len([r for r in resultats if r.statut == NON_DET])
+    echecs = [r.nom for r in resultats if r.statut == ECHEC]
+    ok_compteurs = n_tests == n_pass + n_fail + n_non_det and len(echecs) == n_fail
+    print('[V5.5.6.15] CONTROLE COMPTEURS : n_tests=%d n_pass=%d n_fail=%d n_non_det=%d len(echecs)=%d coherent=%s' % (n_tests, n_pass, n_fail, n_non_det, len(echecs), ok_compteurs))
+    print('[V5.5.6.15] ===== RAPPORT FINAL =====')
+    print('[V5.5.6.15] 3. Resultats formels : CALCUL_FORMEL_OK pour GF(2), expansion, v1, red1, residuel, u_j arithmetique, t1 calcul, poly_add, poly_mul.')
+    print('[V5.5.6.15] 4. Candidats GMN : CANDIDAT_GMN pour v1, red1, residuel, u_j, t1. Aucun candidat ne devient une certification.')
+    print('[V5.5.6.15] 5. Hypotheses etablies : aucune hypothese GMN locale etablie.')
+    print('[V5.5.6.15] 6. Hypotheses non etablies : calcul local, valuations locales, invariants ordre 2, branches, ordre 2, convention historique, certification phi2.')
+    print('[V5.5.6.15] 7. Certifications locales : NON_DET.')
+    print('[V5.5.6.15] 8. Exhaustivite des branches : NON_DET.')
+    print('[V5.5.6.15] 9. Indice local en 2 : NON CALCULE.')
+    print('[V5.5.6.15] 10. Maximalite : NON DEMONTREE. Z[beta] = O_K : NON DEMONTRE.')
+    print('[V5.5.6.15] DEMONTRE : aucune proposition GMN demontree (categorie reservee, jamais attribuee a un test logiciel).')
+    print('[V5.5.6.15] Version Python : %s' % sys.version.split()[0])
+    print('[V5.5.6.15] Nombre de tests : %d' % n_tests)
+    print('[V5.5.6.15] Nombre de PASS : %d' % n_pass)
+    print('[V5.5.6.15] Nombre de FAIL : %d' % n_fail)
+    print('[V5.5.6.15] Nombre de NON_DET : %d' % n_non_det)
+    print('[V5.5.6.15] Controle compteurs coherent : %s' % ok_compteurs)
+    print('[V5.5.6.15] Liste des echecs : %s' % echecs)
+    sg, det_sg = statut_global(resultats)
+    print('[V5.5.6.15] Conclusion globale : %s (%s)' % (sg, det_sg))
+    print('[V5.5.6.15] Aucun PASS GLOBAL.')
+    print('[V5.5.6.15] Debut : %s ; Fin : %s' % (debut.isoformat(), fin.isoformat()))
+    print('[V5.5.6.15] Fonctions : %s' % ', '.join(sorted(set(fonctions))))
+    print('[V5.5.6.15] Exceptions : %s' % exceptions)
+    print('[V5.5.6.15] INDICE LOCAL EN 2 : NON CALCULE')
+    print('[V5.5.6.15] Maximalite de Z[beta] : NON DEMONTREE')
+    print('[V5.5.6.15] Z[beta] = O_K : NON DEMONTRE')
+if __name__=="__main__":
+    try:
+        main()
+    except Exception as _main_exception:
+        print("[V5.5.6.15] ECHEC GLOBAL main: %s: %s"%(type(_main_exception).__name__,_main_exception))
+        sys.exit(1)
