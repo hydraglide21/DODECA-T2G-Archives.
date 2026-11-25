@@ -1,0 +1,54 @@
+{
+  "schema": "DODECA_T2G_V6_SIGN_CORRECTION_ADDENDUM_1",
+  "date_utc": "2026-11-25T19:19:35.478990+00:00",
+  "purpose": "Correction documentee de la convention de signe des racines modulaires.",
+  "files": {
+    "script_v6": {
+      "filename": "RECONSTRUCTION_CRT_LAMBDA_V6_AUDIT_CORRIGE.py",
+      "size_bytes": 9642,
+      "sha256": "4c21f346e2d29969596cbe070006deee3f2ffeeebf4e9e4e9df5a1d2d00f8362"
+    },
+    "source_F_G_H": {
+      "filename": "RESULTANT_SCHUR_T2G_V10_EXACT.txt",
+      "size_bytes": 128426,
+      "sha256": "9f0be9c7e0f1ab226efae0c98fdc64ab5dfa443cb57322d48b03f856ec4e70dc"
+    },
+    "polynome_T": {
+      "filename": "T_x5f_BETA_x5f_COEFFICIENTS_x5f_V2_x5f_8_x5f_B.txt",
+      "size_bytes": 87607,
+      "sha256": "abee7ba7fdf93526b3444f736326a649c28a288747655eaa805c69c80b81ad25"
+    },
+    "rapport_v6": {
+      "filename": "RAPPORT_RECONSTRUCTION_CRT_LAMBDA_V6.json",
+      "size_bytes": 4232,
+      "sha256": "a145fbd5ce5d6f36c19887c7f7e025c2659c44fb95af4839d36a678210ae788a"
+    }
+  },
+  "sign_convention": {
+    "monic_gcd": "lambda + d0",
+    "correct_root": "-d0",
+    "incorrect_extraction": "+d0"
+  },
+  "independent_sign_checks": {
+    "4057": {
+      "minus_d0_F_zero": true,
+      "minus_d0_G_zero": true,
+      "plus_d0_F_zero": false,
+      "plus_d0_G_zero": false
+    },
+    "4211": {
+      "minus_d0_F_zero": true,
+      "minus_d0_G_zero": true,
+      "plus_d0_F_zero": false,
+      "plus_d0_G_zero": false
+    }
+  },
+  "conclusion": "La racine correcte est -d0 pour les deux premiers de controle. Les anciens vecteurs correspondant a +d0 sont invalides comme racines.",
+  "historical_policy": "Les anciennes versions sont conservees sans modification. Les vecteurs errones ne doivent pas etre reutilises.",
+  "scope": {
+    "modular_sign_correction": "CONFIRMED_BY_TWO_INDEPENDENT_HOLDOUTS",
+    "crt_collection": "NOT_IMPLEMENTED",
+    "exact_rational_reconstruction": "NOT_DONE",
+    "exact_gcd_in_Q_r_mod_H": "NOT_VERIFIED"
+  }
+}
