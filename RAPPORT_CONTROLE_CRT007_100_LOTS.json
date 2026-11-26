@@ -1,0 +1,57 @@
+{
+  "schema": "DODECA_T2G_V7_CRT007_SOURCE_COHERENCE_AUDIT",
+  "source_crt_007_sha256": "fcdc352439fa9f01cb5306ed8b8649d2c27fcca77b94ac41f301bdfe5dca70f4",
+  "number_of_primes": 100,
+  "number_of_coordinates": 39,
+  "total_congruences": 3900,
+  "verified_congruences": 3900,
+  "failed_congruences": 0,
+  "report_details": [
+    {
+      "report": "RAPPORT_V7_PREFLIGHT_COLLECTE.json",
+      "primes": 5,
+      "checks": 195,
+      "passed": 195
+    },
+    {
+      "report": "RAPPORT_V7_PREFLIGHT_COLLECTE_002.json",
+      "primes": 5,
+      "checks": 195,
+      "passed": 195
+    },
+    {
+      "report": "RAPPORT_V7_PREFLIGHT_COLLECTE_003.json",
+      "primes": 5,
+      "checks": 195,
+      "passed": 195
+    },
+    {
+      "report": "RAPPORT_V7_PREFLIGHT_COLLECTE_004.json",
+      "primes": 5,
+      "checks": 195,
+      "passed": 195
+    },
+    {
+      "report": "RAPPORT_V7_PREFLIGHT_COLLECTE_005.json",
+      "primes": 5,
+      "checks": 195,
+      "passed": 195
+    },
+    {
+      "report": "RAPPORT_V7_PREFLIGHT_COLLECTE_006.json",
+      "primes": 5,
+      "checks": 195,
+      "passed": 195
+    },
+    {
+      "report": "RAPPORT_V7_PREFLIGHT_COLLECTE_007.json",
+      "primes": 70,
+      "checks": 2730,
+      "passed": 2730
+    }
+  ],
+  "source_coherence": "PASS_3900_OF_3900",
+  "rational_reconstruction": "NOT_EXECUTED",
+  "exact_gcd_status": "NOT_VERIFIED",
+  "status": "SOURCE_COHERENCE_PASS_EXACT_RECONSTRUCTION_OPEN"
+}
