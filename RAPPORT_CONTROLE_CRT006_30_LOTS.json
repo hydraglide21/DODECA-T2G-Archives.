@@ -1,0 +1,63 @@
+{
+  "schema": "DODECA_T2G_V7_CRT006_SOURCE_COHERENCE_AUDIT",
+  "source_crt006_sha256": "6d8a32c40782f079d54f39b1bdcd096e7f230e54b7335f55fd0430ceaeb0cd73",
+  "number_of_primes": 30,
+  "number_of_coordinates": 39,
+  "total_congruences": 1170,
+  "congruences_pass": 1170,
+  "congruences_failed": 0,
+  "lot_details": [
+    {
+      "report": "RAPPORT_V7_PREFLIGHT_COLLECTE.json",
+      "report_sha256": "4571db80e338d213868deb4264a015e3dcfbd09f9a2c28e045bbe9bcc63244c6",
+      "primes": 5,
+      "congruences_pass": 195,
+      "congruences_expected": 195,
+      "status": "PASS"
+    },
+    {
+      "report": "RAPPORT_V7_PREFLIGHT_COLLECTE_002.json",
+      "report_sha256": "b794a3f41d122779916b3322e1f8612de6dbcc2c546cd566a946cef11d4c2027",
+      "primes": 5,
+      "congruences_pass": 195,
+      "congruences_expected": 195,
+      "status": "PASS"
+    },
+    {
+      "report": "RAPPORT_V7_PREFLIGHT_COLLECTE_003.json",
+      "report_sha256": "44747cd2a25f48dbac0ed71c3c5cdd27013e2f40e8f39cb8c0b7bc51f782435c",
+      "primes": 5,
+      "congruences_pass": 195,
+      "congruences_expected": 195,
+      "status": "PASS"
+    },
+    {
+      "report": "RAPPORT_V7_PREFLIGHT_COLLECTE_004.json",
+      "report_sha256": "329c69833d015dd9fbd8ad6673a54edd3f17d464a66ec013d33cf71d85d7cdeb",
+      "primes": 5,
+      "congruences_pass": 195,
+      "congruences_expected": 195,
+      "status": "PASS"
+    },
+    {
+      "report": "RAPPORT_V7_PREFLIGHT_COLLECTE_005.json",
+      "report_sha256": "d729b7d00892d4591e296a5eb0397172726895d94a941b99f758daedb987f817",
+      "primes": 5,
+      "congruences_pass": 195,
+      "congruences_expected": 195,
+      "status": "PASS"
+    },
+    {
+      "report": "RAPPORT_V7_PREFLIGHT_COLLECTE_006.json",
+      "report_sha256": "656347d410321de94d8ddbd50a07cdbd49b3f9032adf37a6e3710b65d12870bf",
+      "primes": 5,
+      "congruences_pass": 195,
+      "congruences_expected": 195,
+      "status": "PASS"
+    }
+  ],
+  "failure_details": [],
+  "rational_reconstruction": "NOT_EXECUTED",
+  "exact_gcd_status": "NOT_VERIFIED",
+  "status": "SOURCE_COHERENCE_PASS_EXACT_RECONSTRUCTION_OPEN"
+}
