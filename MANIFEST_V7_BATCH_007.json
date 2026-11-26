@@ -1,0 +1,38 @@
+{
+  "schema": "DODECA_T2G_V7_BATCH_007_MANIFEST",
+  "created_utc": "2026-11-26T08:56:05.998340+00:00",
+  "number_of_primes": 100,
+  "number_of_coordinates": 39,
+  "verified_congruences": 3900,
+  "failed_congruences": 0,
+  "source_coherence": "PASS_3900_OF_3900",
+  "rational_reconstruction": "NOT_EXECUTED",
+  "exact_gcd_status": "NOT_VERIFIED",
+  "files": [
+    {
+      "filename": "RAPPORT_V7_PREFLIGHT_COLLECTE_007.json",
+      "size_bytes": 77696,
+      "sha256": "0417a31258abf0c8300708e000005bcb76c57477f5e05fd8ddb041d18b7f20f1",
+      "status": "COPIE_VERIFIEE"
+    },
+    {
+      "filename": "V7_CHECKPOINT_PRIMES_007.json",
+      "size_bytes": 1451,
+      "sha256": "4c3d11bc0039a37baff788f9b917140ff2d58932d26d9ebe11b4ac3e55f9375c",
+      "status": "COPIE_VERIFIEE"
+    },
+    {
+      "filename": "V7_CRT_RESIDUES_007.json",
+      "size_bytes": 18901,
+      "sha256": "fcdc352439fa9f01cb5306ed8b8649d2c27fcca77b94ac41f301bdfe5dca70f4",
+      "status": "COPIE_VERIFIEE"
+    },
+    {
+      "filename": "RAPPORT_CONTROLE_CRT007_100_LOTS.json",
+      "size_bytes": 1434,
+      "sha256": "a0256c024972e4eba1c05e3da0b97c2f772a0016c2dc2326e200c5224213862d",
+      "status": "COPIE_VERIFIEE"
+    }
+  ],
+  "status": "ALL_FILES_VERIFIED"
+}
