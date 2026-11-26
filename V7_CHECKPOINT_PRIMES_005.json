@@ -1,0 +1,80 @@
+{
+  "schema": "DODECA_T2G_V7_CRT_CHECKPOINT_005",
+  "source_report_sha256": "d729b7d00892d4591e296a5eb0397172726895d94a941b99f758daedb987f817",
+  "source_v6_sha256": "4c21f346e2d29969596cbe070006deee3f2ffeeebf4e9e4e9df5a1d2d00f8362",
+  "source_expression_sha256": "9f0be9c7e0f1ab226efae0c98fdc64ab5dfa443cb57322d48b03f856ec4e70dc",
+  "T_file_sha256": "abee7ba7fdf93526b3444f736326a649c28a288747655eaa805c69c80b81ad25",
+  "H_to_T_checks": 40,
+  "H_to_T_all_pass": true,
+  "collection_primes": [
+    7489,
+    7499,
+    7883,
+    8237,
+    8761
+  ],
+  "independent_rechecks": [
+    {
+      "prime": 7489,
+      "independent_recalculation": true,
+      "T_irreducible_degree_39": true,
+      "root_coordinates": "39/39_IDENTICAL",
+      "gcd_degree": 1,
+      "F_vanishes": true,
+      "G_vanishes": true,
+      "negative_control": true,
+      "pass": true
+    },
+    {
+      "prime": 7499,
+      "independent_recalculation": true,
+      "T_irreducible_degree_39": true,
+      "root_coordinates": "39/39_IDENTICAL",
+      "gcd_degree": 1,
+      "F_vanishes": true,
+      "G_vanishes": true,
+      "negative_control": true,
+      "pass": true
+    },
+    {
+      "prime": 7883,
+      "independent_recalculation": true,
+      "T_irreducible_degree_39": true,
+      "root_coordinates": "39/39_IDENTICAL",
+      "gcd_degree": 1,
+      "F_vanishes": true,
+      "G_vanishes": true,
+      "negative_control": true,
+      "pass": true
+    },
+    {
+      "prime": 8237,
+      "independent_recalculation": true,
+      "T_irreducible_degree_39": true,
+      "root_coordinates": "39/39_IDENTICAL",
+      "gcd_degree": 1,
+      "F_vanishes": true,
+      "G_vanishes": true,
+      "negative_control": true,
+      "pass": true
+    },
+    {
+      "prime": 8761,
+      "independent_recalculation": true,
+      "T_irreducible_degree_39": true,
+      "root_coordinates": "39/39_IDENTICAL",
+      "gcd_degree": 1,
+      "F_vanishes": true,
+      "G_vanishes": true,
+      "negative_control": true,
+      "pass": true
+    }
+  ],
+  "number_of_primes": 5,
+  "excluded_primes": [
+    227,
+    4057,
+    4211
+  ],
+  "status": "FIVE_ADDITIONAL_PRIMES_INDEPENDENTLY_RECHECKED"
+}
