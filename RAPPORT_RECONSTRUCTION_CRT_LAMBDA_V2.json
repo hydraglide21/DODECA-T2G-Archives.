@@ -1,0 +1,286 @@
+{
+  "status": "CRT_COLLECTED_RATIONAL_CANDIDATES_NOT_CERTIFIED",
+  "basis": "1,r,...,r^38",
+  "primes": [
+    5573,
+    6199,
+    6871,
+    7069,
+    7489,
+    7499,
+    7883
+  ],
+  "prime_count": 7,
+  "crt_modulus_digits": 27,
+  "coordinates": [
+    {
+      "index": 0,
+      "residue": "166418590496736940789164407",
+      "rational_candidate": [
+        -4344259509647,
+        4956645341108
+      ]
+    },
+    {
+      "index": 1,
+      "residue": "526994525970680183744015345",
+      "rational_candidate": null
+    },
+    {
+      "index": 2,
+      "residue": "1441072742950933355221742",
+      "rational_candidate": null
+    },
+    {
+      "index": 3,
+      "residue": "501352915644382222780335556",
+      "rational_candidate": null
+    },
+    {
+      "index": 4,
+      "residue": "642945843570706146483696778",
+      "rational_candidate": [
+        5549585430141,
+        14535946085668
+      ]
+    },
+    {
+      "index": 5,
+      "residue": "254670629298991399369188040",
+      "rational_candidate": null
+    },
+    {
+      "index": 6,
+      "residue": "629545341474904966793332984",
+      "rational_candidate": null
+    },
+    {
+      "index": 7,
+      "residue": "203471358324190907027177716",
+      "rational_candidate": [
+        6305269086481,
+        17853323557605
+      ]
+    },
+    {
+      "index": 8,
+      "residue": "571797451380868202271653388",
+      "rational_candidate": [
+        11836625321543,
+        5477817035513
+      ]
+    },
+    {
+      "index": 9,
+      "residue": "372811750093764423996470627",
+      "rational_candidate": null
+    },
+    {
+      "index": 10,
+      "residue": "212155749178566779980296827",
+      "rational_candidate": [
+        -7115766686249,
+        19195916397817
+      ]
+    },
+    {
+      "index": 11,
+      "residue": "585500154894857173745674848",
+      "rational_candidate": [
+        -11588813199222,
+        5929387023745
+      ]
+    },
+    {
+      "index": 12,
+      "residue": "186203308000790401334191340",
+      "rational_candidate": [
+        -15095652522275,
+        371495626256
+      ]
+    },
+    {
+      "index": 13,
+      "residue": "603678886115061852530364546",
+      "rational_candidate": null
+    },
+    {
+      "index": 14,
+      "residue": "622655607722724669782568404",
+      "rational_candidate": null
+    },
+    {
+      "index": 15,
+      "residue": "566201364525222724335407520",
+      "rational_candidate": [
+        -9271922149735,
+        6030502123844
+      ]
+    },
+    {
+      "index": 16,
+      "residue": "92189831068788777637347745",
+      "rational_candidate": [
+        11700775831543,
+        11910198455449
+      ]
+    },
+    {
+      "index": 17,
+      "residue": "93484027134992676831012661",
+      "rational_candidate": [
+        2727502003379,
+        6424882654149
+      ]
+    },
+    {
+      "index": 18,
+      "residue": "538779269514223462129409475",
+      "rational_candidate": null
+    },
+    {
+      "index": 19,
+      "residue": "116796356774630828575813339",
+      "rational_candidate": [
+        -10977714990361,
+        519078315899
+      ]
+    },
+    {
+      "index": 20,
+      "residue": "728994977233875562813476213",
+      "rational_candidate": null
+    },
+    {
+      "index": 21,
+      "residue": "62632457685598611547710232",
+      "rational_candidate": null
+    },
+    {
+      "index": 22,
+      "residue": "736421570556818043819604997",
+      "rational_candidate": null
+    },
+    {
+      "index": 23,
+      "residue": "91973789420805214169292670",
+      "rational_candidate": [
+        12049799154446,
+        5406509146699
+      ]
+    },
+    {
+      "index": 24,
+      "residue": "442349461038364170206783912",
+      "rational_candidate": null
+    },
+    {
+      "index": 25,
+      "residue": "592837565063898976795245765",
+      "rational_candidate": [
+        9472964536243,
+        8357427660450
+      ]
+    },
+    {
+      "index": 26,
+      "residue": "150436791815291650334926941",
+      "rational_candidate": [
+        7607409388217,
+        4940694694397
+      ]
+    },
+    {
+      "index": 27,
+      "residue": "600896021139149702297469958",
+      "rational_candidate": [
+        -684989211656,
+        82999959881
+      ]
+    },
+    {
+      "index": 28,
+      "residue": "280565774841133801758761011",
+      "rational_candidate": [
+        -14873970611248,
+        10718688917785
+      ]
+    },
+    {
+      "index": 29,
+      "residue": "372843268037343163219860016",
+      "rational_candidate": null
+    },
+    {
+      "index": 30,
+      "residue": "11895744385332619875519784",
+      "rational_candidate": [
+        606559860475,
+        4707587438221
+      ]
+    },
+    {
+      "index": 31,
+      "residue": "368121952156294563820188163",
+      "rational_candidate": [
+        2414424271539,
+        14247965848412
+      ]
+    },
+    {
+      "index": 32,
+      "residue": "194185902109502021283417070",
+      "rational_candidate": [
+        11195175709965,
+        16611608262259
+      ]
+    },
+    {
+      "index": 33,
+      "residue": "191798147745750491329448721",
+      "rational_candidate": [
+        11123678351519,
+        10152761712619
+      ]
+    },
+    {
+      "index": 34,
+      "residue": "513198529765117307090628983",
+      "rational_candidate": [
+        12079326970381,
+        833196499801
+      ]
+    },
+    {
+      "index": 35,
+      "residue": "607761762567753563904443144",
+      "rational_candidate": null
+    },
+    {
+      "index": 36,
+      "residue": "45929497693693935074160613",
+      "rational_candidate": [
+        15688848031838,
+        16830044225253
+      ]
+    },
+    {
+      "index": 37,
+      "residue": "183237933878746176467609621",
+      "rational_candidate": [
+        482866790930,
+        6421887112499
+      ]
+    },
+    {
+      "index": 38,
+      "residue": "662670700528144415970529486",
+      "rational_candidate": null
+    }
+  ],
+  "candidate_count": 23,
+  "all_39_candidates": false,
+  "source_sha256": "9f0be9c7e0f1ab226efae0c98fdc64ab5dfa443cb57322d48b03f856ec4e70dc",
+  "elapsed_seconds": 29.33,
+  "warning": "La reconstruction rationnelle CRT est une conjecture de hauteur; validation exacte F=G=0 dans Q[r]/(H) obligatoire."
+}
