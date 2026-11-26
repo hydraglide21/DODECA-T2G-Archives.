@@ -1,0 +1,32 @@
+{
+  "status": "PASS_EXTRACTION_S1_AND_REDUCTION_MOD_H; EXACT_INVERSION_PENDING",
+  "source_sha256": "9f0be9c7e0f1ab226efae0c98fdc64ab5dfa443cb57322d48b03f856ec4e70dc",
+  "F_degree_lambda": 13,
+  "G_degree_lambda": 9,
+  "subresultant_degree_trace": [
+    13,
+    9,
+    8,
+    7,
+    6,
+    5,
+    4,
+    3,
+    2,
+    1,
+    0
+  ],
+  "degree_one_subresultant_count": 1,
+  "S1_coefficients_reduced_mod_H": true,
+  "s11_reduced_numerator_degree": 38,
+  "s11_reduced_denominator_degree": 0,
+  "s10_reduced_numerator_degree": 38,
+  "s10_reduced_denominator_degree": 0,
+  "s11_nonzero_mod_H": true,
+  "gcd_s11_numerator_H_degree": 0,
+  "gcd_s11_denominator_H_degree": 0,
+  "gcd_s10_denominator_H_degree": 0,
+  "lambda_star_rational_coefficients_reconstructed": false,
+  "exact_inverse_attempt_previous_run": "exceeded 120-second execution limit",
+  "elapsed_seconds": 15.785
+}

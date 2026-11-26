@@ -1,0 +1,26 @@
+V15-C.4 — EXTRACTION EXACTE ET PILOTE MODULAIRE DE lambda*
+Date : 17 novembre 2026
+
+SOURCES
+RESULTANT_SCHUR_T2G_V10_EXACT.txt
+SHA-256 : 9f0be9c7e0f1ab226efae0c98fdc64ab5dfa443cb57322d48b03f856ec4e70dc
+
+RESULTAT EXACT REPRODUIT
+- F et G sont traites dans QQ(r)[lambda].
+- La chaine des sous-resultants calculee est de degres 13,9,8,7,6,5,4,3,2,1,0.
+- Il existe exactement un sous-resultant de degre 1 dans cette chaine.
+- Les deux coefficients de S1 sont reduits exactement modulo H39.
+- Les representants reduits s11 et s10 sont de degre 38.
+- gcd(numerateur(s11),H39)=1, donc s11 est non nul et inversible dans Q[r]/(H39), puisque H39 est irreductible.
+- Les denominateurs des coefficients reduits sont constants non nuls.
+
+PILOTE MODULAIRE
+Pour p=227,397,523,569, H39 reste irreductible et s11 est inversible modulo H39.
+Les 39 coordonnees de lambda*=-s10/s11 ont ete calculees et verifiees dans F_p[r]/(H39) pour chacun de ces quatre premiers.
+
+LIMITE ACTUELLE
+La reconstruction rationnelle des 39 coefficients n'est pas terminee. Une inversion exacte directe de s11 modulo H39 a depasse 120 secondes. Le CRT dispose de quatre reductions valides, mais le module cumule n'est pas encore justifie suffisant pour une reconstruction rationnelle unique. Aucune expression rationnelle de lambda* n'est revendiquee.
+
+STATUT
+PASS : extraction exacte de S1, reduction exacte modulo H39, preuve de s11 non nul, quatre reductions modulaires coherentes.
+OUVERT : reconstruction rationnelle complete de lambda*, puis substitution exacte dans F et G.
